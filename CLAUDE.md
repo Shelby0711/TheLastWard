@@ -6,4 +6,4 @@ Only read [PROTOTYPE_PLAN.md](PROTOTYPE_PLAN.md) or [the_last_ward_game_bible.md
 
 Current milestone: see "Milestone Status" in `PROJECT_CONTEXT.md`. Work one milestone step at a time; don't jump ahead to later systems even if they seem related.
 
-Unity Editor is not installed on this machine — see [SETUP.md](SETUP.md) before assuming you can run/build the project.
+Unity Editor is installed and the project opens clean (M0 verified). `SETUP.md` is now historical context, not a pending checklist.
