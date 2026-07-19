@@ -55,3 +55,8 @@ Thumbs.db
 
 # Editor sensitive config (per-machine services credentials)
 /[Aa]ssets/StreamingAssets/aa/*
+
+# Design/planning docs stay local-only, not on git (CLAUDE.md is the one exception —
+# it's Claude Code tooling config, not a design guide)
+/*.md
+!/CLAUDE.md
