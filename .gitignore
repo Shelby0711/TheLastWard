@@ -60,3 +60,7 @@ Thumbs.db
 # it's Claude Code tooling config, not a design guide)
 /*.md
 !/CLAUDE.md
+
+# Large asset files
+/Game_Assets/hospital_props_gltf.zip
+/Game_Assets/unfinished_abandoned_building_in_riga_gltf/scene.bin
