@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: TutorialNoteClue
+  m_EditorClassIdentifier: Assembly-CSharp::LastWard.Puzzles.ClueDefinition
+  clueId: tutorial_reading
+  displayTitle: A Torn Page
+  bodyText: 'Someone wrote this and never came back for it. Reading it feels like
+    taking something that isn''t yours.
+
+
+    (Every note you read here matters more
+    than it looks like it should.)'
+  knowledgeValue: 1
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

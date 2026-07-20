@@ -20,6 +20,7 @@ namespace LastWard.Core
         public static event Action<ObjectiveStage> OnObjectiveStageChanged;
         public static event Action<AftermathType, Vector3> OnAftermathTriggered;
         public static event Action<ulong> OnSpectatorTargetChanged;
+        public static event Action OnSpectatorPing;
 
         public static void RaiseKnowledgeChanged(ulong playerId, float newScore) => OnKnowledgeChanged?.Invoke(playerId, newScore);
         public static void RaiseAggressionTierChanged(int newTier) => OnAggressionTierChanged?.Invoke(newTier);
@@ -30,5 +31,6 @@ namespace LastWard.Core
         public static void RaiseObjectiveStageChanged(ObjectiveStage stage) => OnObjectiveStageChanged?.Invoke(stage);
         public static void RaiseAftermathTriggered(AftermathType type, Vector3 position) => OnAftermathTriggered?.Invoke(type, position);
         public static void RaiseSpectatorTargetChanged(ulong watchedPlayerId) => OnSpectatorTargetChanged?.Invoke(watchedPlayerId);
+        public static void RaiseSpectatorPing() => OnSpectatorPing?.Invoke();
     }
 }

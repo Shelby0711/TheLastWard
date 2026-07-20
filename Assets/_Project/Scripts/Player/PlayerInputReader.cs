@@ -27,20 +27,47 @@ namespace LastWard.Player
         public event Action InventorySlot2Pressed;
         public event Action PausePressed;
 
+        public event Action SpectatorNextPressed;
+        public event Action SpectatorPreviousPressed;
+        public event Action SpectatorPingPressed;
+
         private void Awake()
         {
             controls = new PlayerControls();
-            Local = this;
 
             controls.Gameplay.Interact.performed += OnInteract;
             controls.Gameplay.ToggleFlashlight.performed += OnFlashlightToggle;
             controls.Gameplay.InventorySlot1.performed += OnInventorySlot1;
             controls.Gameplay.InventorySlot2.performed += OnInventorySlot2;
             controls.Gameplay.Pause.performed += OnPause;
+
+            controls.Spectator.SwitchNext.performed += OnSpectatorNext;
+            controls.Spectator.SwitchPrevious.performed += OnSpectatorPrevious;
+            controls.Spectator.Ping.performed += OnSpectatorPing;
         }
 
-        private void OnEnable() => controls.Gameplay.Enable();
-        private void OnDisable() => controls.Gameplay.Disable();
+        /// <summary>Swap gameplay input for spectator input on death (and back, if ever revived).</summary>
+        public void SetSpectatorMode(bool spectating)
+        {
+            if (spectating) { controls.Gameplay.Disable(); controls.Spectator.Enable(); }
+            else { controls.Spectator.Disable(); controls.Gameplay.Enable(); }
+        }
+
+        // Local is set here (not Awake) so that in co-op only the owning client's player —
+        // the one NetworkPlayer leaves enabled — ever claims the static reference. Remote
+        // player objects have this component disabled, so their OnEnable never runs.
+        private void OnEnable()
+        {
+            Local = this;
+            controls.Gameplay.Enable();
+        }
+
+        private void OnDisable()
+        {
+            controls.Gameplay.Disable();
+            controls.Spectator.Disable();
+            if (Local == this) Local = null;
+        }
 
         private void OnDestroy()
         {
@@ -49,8 +76,10 @@ namespace LastWard.Player
             controls.Gameplay.InventorySlot1.performed -= OnInventorySlot1;
             controls.Gameplay.InventorySlot2.performed -= OnInventorySlot2;
             controls.Gameplay.Pause.performed -= OnPause;
+            controls.Spectator.SwitchNext.performed -= OnSpectatorNext;
+            controls.Spectator.SwitchPrevious.performed -= OnSpectatorPrevious;
+            controls.Spectator.Ping.performed -= OnSpectatorPing;
             controls.Dispose();
-            if (Local == this) Local = null;
         }
 
         private void OnInteract(InputAction.CallbackContext ctx) => InteractPressed?.Invoke();
@@ -58,5 +87,8 @@ namespace LastWard.Player
         private void OnInventorySlot1(InputAction.CallbackContext ctx) => InventorySlot1Pressed?.Invoke();
         private void OnInventorySlot2(InputAction.CallbackContext ctx) => InventorySlot2Pressed?.Invoke();
         private void OnPause(InputAction.CallbackContext ctx) => PausePressed?.Invoke();
+        private void OnSpectatorNext(InputAction.CallbackContext ctx) => SpectatorNextPressed?.Invoke();
+        private void OnSpectatorPrevious(InputAction.CallbackContext ctx) => SpectatorPreviousPressed?.Invoke();
+        private void OnSpectatorPing(InputAction.CallbackContext ctx) => SpectatorPingPressed?.Invoke();
     }
 }

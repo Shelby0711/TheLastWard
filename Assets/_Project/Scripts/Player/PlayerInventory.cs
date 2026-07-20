@@ -17,23 +17,20 @@ namespace LastWard.Player
 
         public event Action InventoryChanged;
 
-        private void Awake() => Local = this;
-
+        // Local set in OnEnable (not Awake) so only the owner's enabled inventory claims it — see
+        // the same pattern in PlayerInputReader.
         private void OnEnable()
         {
+            Local = this;
             input.InventorySlot1Pressed += OnSlot1;
             input.InventorySlot2Pressed += OnSlot2;
         }
 
         private void OnDisable()
         {
+            if (Local == this) Local = null;
             input.InventorySlot1Pressed -= OnSlot1;
             input.InventorySlot2Pressed -= OnSlot2;
-        }
-
-        private void OnDestroy()
-        {
-            if (Local == this) Local = null;
         }
 
         public bool TryAddItem(string itemId)
@@ -51,6 +48,27 @@ namespace LastWard.Player
         }
 
         public string GetSlot(int index) => slots[index];
+
+        public bool HasItem(string itemId)
+        {
+            for (int i = 0; i < SlotCount; i++)
+                if (slots[i] == itemId) return true;
+            return false;
+        }
+
+        public bool RemoveItem(string itemId)
+        {
+            for (int i = 0; i < SlotCount; i++)
+            {
+                if (slots[i] == itemId)
+                {
+                    slots[i] = null;
+                    InventoryChanged?.Invoke();
+                    return true;
+                }
+            }
+            return false;
+        }
 
         private void OnSlot1() => SelectSlot(0);
         private void OnSlot2() => SelectSlot(1);

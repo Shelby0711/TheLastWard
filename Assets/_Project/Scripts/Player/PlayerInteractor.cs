@@ -1,36 +1,47 @@
 using LastWard.Core;
 using LastWard.UI;
+using Unity.Netcode;
 using UnityEngine;
 
 namespace LastWard.Player
 {
     public class PlayerInteractor : MonoBehaviour
     {
-        // Placeholder until M2 wires real NGO client ids — 0 matches NGO's default host id,
-        // and every IInteractable already takes ulong per PROJECT_CONTEXT.md's convention so
-        // nothing here needs to change when networking lands.
-        private const ulong LocalPlayerId = 0;
-
         [SerializeField] private PlayerInputReader input;
         [SerializeField] private Camera interactCamera;
-        [SerializeField] private float interactRange = 2.5f;
+        [SerializeField] private float interactRange = 3f;
         [SerializeField] private LayerMask interactableMask = ~0;
 
         private IInteractable current;
 
+        // Real NGO client id once a session is running, 0 in the offline sandbox. Knowledge
+        // scoring (M4) attributes actions by this id, so it has to be the true owner id.
+        private static ulong LocalPlayerId =>
+            NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening
+                ? NetworkManager.Singleton.LocalClientId
+                : 0UL;
+
         private void OnEnable() => input.InteractPressed += TryInteract;
-        private void OnDisable() => input.InteractPressed -= TryInteract;
+        private void OnDisable()
+        {
+            input.InteractPressed -= TryInteract;
+            InteractionPromptUI.Instance?.SetPrompt(null);
+            CrosshairUI.Instance?.SetTargeted(false);
+        }
 
         private void Update()
         {
             current = null;
 
-            if (Physics.Raycast(interactCamera.transform.position, interactCamera.transform.forward, out var hit, interactRange, interactableMask))
+            if (Physics.Raycast(interactCamera.transform.position, interactCamera.transform.forward, out var hit, interactRange, interactableMask, QueryTriggerInteraction.Ignore))
             {
-                hit.collider.TryGetComponent(out current);
+                // GetComponentInParent, not TryGetComponent: colliders usually sit on a child
+                // mesh (a door's panel) while the IInteractable lives on the parent root.
+                current = hit.collider.GetComponentInParent<IInteractable>();
             }
 
             InteractionPromptUI.Instance?.SetPrompt(current?.GetPrompt());
+            CrosshairUI.Instance?.SetTargeted(current != null);
         }
 
         private void TryInteract()

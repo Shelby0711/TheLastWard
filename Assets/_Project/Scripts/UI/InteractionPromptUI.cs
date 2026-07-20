@@ -25,7 +25,7 @@ namespace LastWard.UI
         {
             bool show = !string.IsNullOrEmpty(prompt);
             root.SetActive(show);
-            if (show) promptText.text = prompt;
+            if (show) promptText.text = $"[E]  {prompt}";
         }
     }
 }

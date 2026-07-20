@@ -18,21 +18,17 @@ namespace LastWard.UI
             root.SetActive(false);
         }
 
-        private void Start()
-        {
-            // Subscribing here (not OnEnable) guarantees PlayerInputReader.Awake has already
-            // run and set Local, since Unity runs all Awake calls before any Start call.
-            if (PlayerInputReader.Local != null)
-                PlayerInputReader.Local.PausePressed += Close;
-        }
+        private PlayerInputReader subscribedInput;
 
         private void OnDestroy()
         {
             if (Instance == this) Instance = null;
-            if (PlayerInputReader.Local != null)
-                PlayerInputReader.Local.PausePressed -= Close;
+            Unsubscribe();
         }
 
+        // Subscribe when the note actually opens rather than at Start: in co-op the local player
+        // is spawned by Netcode after the scene loads, so PlayerInputReader.Local is still null
+        // during Start and Escape would never bind.
         public void Show(string title, string body)
         {
             titleText.text = title;
@@ -40,13 +36,24 @@ namespace LastWard.UI
             root.SetActive(true);
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
+
+            Unsubscribe();
+            subscribedInput = PlayerInputReader.Local;
+            if (subscribedInput != null) subscribedInput.PausePressed += Close;
         }
 
         public void Close()
         {
+            Unsubscribe();
             root.SetActive(false);
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+        }
+
+        private void Unsubscribe()
+        {
+            if (subscribedInput != null) subscribedInput.PausePressed -= Close;
+            subscribedInput = null;
         }
     }
 }

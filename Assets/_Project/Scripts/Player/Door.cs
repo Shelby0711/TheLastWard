@@ -1,3 +1,4 @@
+using LastWard.Audio;
 using LastWard.Core;
 using UnityEngine;
 
@@ -15,11 +16,22 @@ namespace LastWard.Player
         private Quaternion closedRotation;
         private Quaternion targetRotation;
 
+        private AudioSource audioSource;
+        private AudioClip creak;
+
         private void Awake()
         {
             if (hinge == null) hinge = transform;
             closedRotation = hinge.localRotation;
             targetRotation = closedRotation;
+
+            audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.playOnAwake = false;
+            audioSource.spatialBlend = 1f;
+            audioSource.rolloffMode = AudioRolloffMode.Linear;
+            audioSource.minDistance = 1.5f;
+            audioSource.maxDistance = 20f;
+            creak = ProceduralSfx.DoorCreak();
         }
 
         private void Update()
@@ -34,6 +46,7 @@ namespace LastWard.Player
         {
             isOpen = !isOpen;
             targetRotation = isOpen ? closedRotation * Quaternion.Euler(0f, openAngle, 0f) : closedRotation;
+            audioSource.PlayOneShot(creak);
             GameEvents.RaiseNoiseEmitted(transform.position, noiseRadius, NoiseSource.Door);
         }
 
