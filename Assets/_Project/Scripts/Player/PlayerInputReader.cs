@@ -16,8 +16,25 @@ namespace LastWard.Player
 
         private PlayerControls controls;
 
+        private const float GamepadLookDegreesPerSecond = 90f;
+
         public Vector2 Move => controls.Gameplay.Move.ReadValue<Vector2>();
-        public Vector2 Look => controls.Gameplay.Look.ReadValue<Vector2>();
+
+        /// <summary>
+        /// Frame-normalized look input. A mouse delta is already a per-frame displacement, but a
+        /// gamepad stick is a held rate — without the deltaTime scaling below, stick look speed
+        /// would change with framerate. Consumers add this straight to their angles.
+        /// </summary>
+        public Vector2 Look
+        {
+            get
+            {
+                Vector2 value = controls.Gameplay.Look.ReadValue<Vector2>();
+                if (controls.Gameplay.Look.activeControl?.device is Gamepad)
+                    value *= Time.deltaTime * GamepadLookDegreesPerSecond;
+                return value;
+            }
+        }
         public bool SprintHeld => controls.Gameplay.Sprint.IsPressed();
         public bool CrouchHeld => controls.Gameplay.Crouch.IsPressed();
 

@@ -7,14 +7,11 @@ namespace LastWard.Player
         [SerializeField] private PlayerInputReader input;
         [SerializeField] private Transform cameraPivot;
         [SerializeField] private float sensitivity = 1f;
-        [Tooltip("Higher = snappier. Low values feel floaty/laggy.")]
-        [SerializeField] private float smoothing = 22f;
         [SerializeField] private float minPitch = -80f;
         [SerializeField] private float maxPitch = 80f;
 
         private float yaw;
         private float pitch;
-        private Vector2 smoothedLook;
 
         private void Start()
         {
@@ -23,19 +20,17 @@ namespace LastWard.Player
             Cursor.visible = false;
         }
 
-        // LateUpdate so the camera resolves after movement has already run this frame —
-        // updating both in Update leaves the view a frame behind the body and reads as jitter.
+        // LateUpdate so the view resolves after movement has run this frame.
         private void LateUpdate()
         {
+            // Look input arrives already frame-normalized from PlayerInputReader (mouse delta as-is,
+            // gamepad stick scaled by deltaTime). Deliberately NOT smoothed: filtering a delta signal
+            // adds input lag, keeps drifting after the mouse stops, and loses travel on uneven
+            // frames — which reads as "sticky then jumpy".
             Vector2 look = input.Look * sensitivity;
 
-            // Framerate-independent exponential smoothing: takes the edge off raw mouse deltas
-            // without adding the input lag a plain Lerp-per-frame would.
-            float t = 1f - Mathf.Exp(-smoothing * Time.deltaTime);
-            smoothedLook = Vector2.Lerp(smoothedLook, look, t);
-
-            yaw += smoothedLook.x;
-            pitch = Mathf.Clamp(pitch - smoothedLook.y, minPitch, maxPitch);
+            yaw += look.x;
+            pitch = Mathf.Clamp(pitch - look.y, minPitch, maxPitch);
 
             transform.rotation = Quaternion.Euler(0f, yaw, 0f);
             cameraPivot.localRotation = Quaternion.Euler(pitch, 0f, 0f);

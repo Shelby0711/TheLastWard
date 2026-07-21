@@ -31,6 +31,10 @@ namespace LastWard.Net
         public string JoinCode => Session?.Code;
         public event Action<string> StatusChanged;
 
+        /// <summary>Raised locally when this client loses the session (relay/websocket drop, host
+        /// gone, transport failure) so the UI can surface it instead of silently freezing.</summary>
+        public event Action Disconnected;
+
         private void Awake()
         {
             if (Instance != null && Instance != this)
@@ -46,15 +50,41 @@ namespace LastWard.Net
         // NetworkManager.Singleton — has already run.
         private void Start()
         {
-            if (NetworkManager.Singleton != null)
-                NetworkManager.Singleton.ConnectionApprovalCallback += OnConnectionApproval;
+            if (NetworkManager.Singleton == null) return;
+            NetworkManager.Singleton.ConnectionApprovalCallback += OnConnectionApproval;
+            NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnect;
+            NetworkManager.Singleton.OnTransportFailure += OnTransportFailure;
         }
 
         private void OnDestroy()
         {
             if (Instance == this) Instance = null;
-            if (NetworkManager.Singleton != null)
-                NetworkManager.Singleton.ConnectionApprovalCallback -= OnConnectionApproval;
+            if (NetworkManager.Singleton == null) return;
+            NetworkManager.Singleton.ConnectionApprovalCallback -= OnConnectionApproval;
+            NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnect;
+            NetworkManager.Singleton.OnTransportFailure -= OnTransportFailure;
+        }
+
+        // Without this, losing the session (relay/websocket drop, idle timeout, host gone) despawns
+        // the player object and the game just appears to freeze with no explanation.
+        private void OnClientDisconnect(ulong clientId)
+        {
+            var nm = NetworkManager.Singleton;
+            if (nm == null) return;
+            bool weDropped = clientId == nm.LocalClientId || !nm.IsListening;
+            if (!weDropped) return;
+            ReportLostConnection("Connection lost — session ended.");
+        }
+
+        private void OnTransportFailure() => ReportLostConnection("Network transport failed.");
+
+        private void ReportLostConnection(string reason)
+        {
+            Session = null;
+            SetStatus(reason);
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            Disconnected?.Invoke();
         }
 
         // Requires NetworkConfig.ConnectionApproval enabled (EditorBuildKit sets this) — otherwise

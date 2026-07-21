@@ -21,14 +21,23 @@ namespace LastWard.UI
 
         private void Start()
         {
-            if (NetworkSessionManager.Instance != null)
-                NetworkSessionManager.Instance.StatusChanged += OnStatus;
+            if (NetworkSessionManager.Instance == null) return;
+            NetworkSessionManager.Instance.StatusChanged += OnStatus;
+            NetworkSessionManager.Instance.Disconnected += OnDisconnected;
         }
 
         private void OnDestroy()
         {
-            if (NetworkSessionManager.Instance != null)
-                NetworkSessionManager.Instance.StatusChanged -= OnStatus;
+            if (NetworkSessionManager.Instance == null) return;
+            NetworkSessionManager.Instance.StatusChanged -= OnStatus;
+            NetworkSessionManager.Instance.Disconnected -= OnDisconnected;
+        }
+
+        // Bring the panel back so a dropped session is visible and re-hostable, rather than
+        // leaving the player in a frozen world with no player object.
+        private void OnDisconnected()
+        {
+            if (panel != null) panel.SetActive(true);
         }
 
         private void OnHost()

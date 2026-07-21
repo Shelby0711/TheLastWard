@@ -144,9 +144,11 @@ GameObject:
   - component: {fileID: 2103256224576738598}
   - component: {fileID: 4576127525946617533}
   - component: {fileID: 5900577945255252191}
+  - component: {fileID: 2983954127928100656}
   - component: {fileID: 6782160108478530903}
   - component: {fileID: 2493156159122236341}
   - component: {fileID: 7215341858339369055}
+  - component: {fileID: 7840042632350229751}
   - component: {fileID: 6405499770427118271}
   - component: {fileID: 2643312024932409096}
   - component: {fileID: 4642195020704368765}
@@ -211,7 +213,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 233254707
+  GlobalObjectIdHash: 2412648237
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -319,9 +321,23 @@ MonoBehaviour:
   input: {fileID: 2103256224576738598}
   cameraPivot: {fileID: 6616980331856621487}
   sensitivity: 1
-  smoothing: 22
   minPitch: -80
   maxPitch: 80
+--- !u!114 &2983954127928100656
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4432424275860039361}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d15b314f4d499554482b3ebaf3e10dd9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LastWard.Net.PlayerNetworkState
+  ShowTopMostFoldoutHeaderGroup: 1
+  cameraPivot: {fileID: 6616980331856621487}
+  flashlight: {fileID: 615813166634590598}
 --- !u!114 &6782160108478530903
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -335,8 +351,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LastWard.Player.FlashlightController
   input: {fileID: 2103256224576738598}
-  flashlight: {fileID: 615813166634590598}
-  startEnabled: 0
+  state: {fileID: 2983954127928100656}
+  fallbackLight: {fileID: 0}
 --- !u!114 &2493156159122236341
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -368,6 +384,23 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LastWard.Player.PlayerInventory
   input: {fileID: 2103256224576738598}
+--- !u!114 &7840042632350229751
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4432424275860039361}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ae2516de05bf4334b918b00ce94ddb8f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LastWard.Spectator.SpectatorController
+  input: {fileID: 2103256224576738598}
+  state: {fileID: 2983954127928100656}
+  spectatorCamera: {fileID: 5696164052681088520}
+  switchCooldown: 5
+  pingCooldown: 30
 --- !u!114 &6405499770427118271
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -384,7 +417,9 @@ MonoBehaviour:
   - {fileID: 4576127525946617533}
   - {fileID: 5900577945255252191}
   - {fileID: 2493156159122236341}
-  respawnDelay: 3
+  state: {fileID: 2983954127928100656}
+  spectator: {fileID: 7840042632350229751}
+  messageSeconds: 2.5
 --- !u!82 &2643312024932409096
 AudioSource:
   m_ObjectHideFlags: 0
@@ -518,6 +553,7 @@ MonoBehaviour:
   - {fileID: 6782160108478530903}
   - {fileID: 2493156159122236341}
   - {fileID: 7215341858339369055}
+  - {fileID: 7840042632350229751}
 --- !u!1 &5820350898950185701
 GameObject:
   m_ObjectHideFlags: 0

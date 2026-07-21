@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using LastWard.Aftermath;
 using LastWard.Core;
 using LastWard.Knowledge;
 using LastWard.Net;
@@ -284,7 +285,12 @@ namespace LastWard.Entity
             // handles the death->spectator transition, and everyone (incl. the Entity's own
             // targeting) then treats them as dead. No per-victim RPC needed anymore.
             if (target != null && target.TryGetComponent<PlayerNetworkState>(out var victim))
+            {
+                Vector3 deathPos = target.position;
                 victim.ServerKill();
+                int tier = KnowledgeService.Instance != null ? KnowledgeService.Instance.GetAggressionTier() : 0;
+                AftermathManager.Instance?.ServerTriggerAftermath(deathPos, tier);
+            }
 
             target = null;
             hasStimulus = false;

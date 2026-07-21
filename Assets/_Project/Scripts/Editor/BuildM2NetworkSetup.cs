@@ -35,6 +35,7 @@ namespace LastWard.EditorTools
                 return;
             }
 
+            EditorBuildKit.EnsureProjectSettings();
             var playerPrefab = EditorBuildKit.BuildPlayerPrefab();
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -43,6 +44,10 @@ namespace LastWard.EditorTools
             EditorBuildKit.CreateNetworkManager(playerPrefab);
             EditorBuildKit.CreateSessionManager();
             EditorBuildKit.CreateKnowledgeService();
+            var aftermathTemplates = EditorBuildKit.CreateAftermathTemplates();
+            EditorBuildKit.CreateAftermathManager(aftermathTemplates);
+            EditorBuildKit.CreateAftermathAnchor(new Vector3(-3f, 0f, 8f));
+            EditorBuildKit.CreateAftermathAnchor(new Vector3(3f, 0f, -3f));
             EditorBuildKit.CreateConnectionUI();
 
             EditorBuildKit.CreateFusePuzzle(

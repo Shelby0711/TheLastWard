@@ -31,6 +31,7 @@ namespace LastWard.EditorTools
                 return;
             }
 
+            EditorBuildKit.EnsureProjectSettings();
             var playerPrefab = EditorBuildKit.BuildPlayerPrefab();
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -51,6 +52,9 @@ namespace LastWard.EditorTools
             EditorBuildKit.SetVector3(sessionManager, "spawnPosition", new Vector3(0f, 1f, -13f));
             EditorBuildKit.CreateKnowledgeService();
             CreateObjectiveTracker();
+            var aftermathTemplates = EditorBuildKit.CreateAftermathTemplates();
+            EditorBuildKit.CreateAftermathManager(aftermathTemplates);
+            CreateAftermathAnchors();
             EditorBuildKit.CreateConnectionUI();
             CreateObjectiveUI();
 
@@ -371,6 +375,21 @@ namespace LastWard.EditorTools
 
         // Spans Lobby + Ward + Corridor — deliberately NOT the Exit Route, so the finale plays out
         // as puzzle + one-slot-door tension rather than also dodging the Entity right at the end.
+        // 2 per zone rather than the plan's "~4 per zone" — enough spatial variety to prove the
+        // nearest-anchor logic without placing 20 markers by hand; trivial to add more later.
+        private static void CreateAftermathAnchors()
+        {
+            Vector3[] positions =
+            {
+                new Vector3(2f, 0f, -18f), new Vector3(-2f, 0f, -12f), // Exterior
+                new Vector3(2f, 0f, 4f), new Vector3(-2f, 0f, 6f),     // Lobby
+                new Vector3(2f, 0f, 14f), new Vector3(-2f, 0f, 16f),   // Ward
+                new Vector3(2.5f, 0f, 27f), new Vector3(-2.5f, 0f, 35f), // Corridor
+                new Vector3(2f, 0f, 48f), new Vector3(-2f, 0f, 50f),   // Exit Route
+            };
+            foreach (var p in positions) EditorBuildKit.CreateAftermathAnchor(p);
+        }
+
         private static Transform[] CreatePatrolWaypoints()
         {
             var parent = new GameObject("PatrolWaypoints").transform;

@@ -1,3 +1,4 @@
+using System;
 using LastWard.Core;
 using LastWard.Knowledge;
 using LastWard.Net;
@@ -27,10 +28,29 @@ namespace LastWard.Puzzles
         private readonly NetworkVariable<bool> fuseBInserted = new NetworkVariable<bool>();
         private readonly NetworkVariable<int> breakerProgress = new NetworkVariable<int>();
         private readonly NetworkVariable<bool> solved = new NetworkVariable<bool>();
+        // Bitmask of breakers correctly flipped so far this attempt — lets each BreakerSwitch know
+        // to show itself as green without tracking the sequence itself.
+        private readonly NetworkVariable<int> correctMask = new NetworkVariable<int>(0);
+        // One-shot signal: which breaker was just pressed wrong, so that switch alone can flash red.
+        // -1 = no pending flash. Clients react to the value CHANGING, so two different wrong presses
+        // in a row both fire even though the mask resets to 0 either way.
+        private readonly NetworkVariable<int> lastWrongBreaker = new NetworkVariable<int>(-1);
 
         public bool IsPowered => fuseAInserted.Value && fuseBInserted.Value;
         public bool IsSolved => solved.Value;
         public bool IsFuseInserted(int slot) => slot == 0 ? fuseAInserted.Value : fuseBInserted.Value;
+        public int CorrectMask => correctMask.Value;
+
+        /// <summary>Fires on every client with the updated correct-so-far bitmask.</summary>
+        public event Action<int> CorrectMaskChanged;
+        /// <summary>Fires on every client with the breaker index that was just pressed wrong.</summary>
+        public event Action<int> WrongBreakerPressed;
+
+        public override void OnNetworkSpawn()
+        {
+            correctMask.OnValueChanged += (_, now) => CorrectMaskChanged?.Invoke(now);
+            lastWrongBreaker.OnValueChanged += (_, now) => { if (now >= 0) WrongBreakerPressed?.Invoke(now); };
+        }
 
         [ServerRpc(RequireOwnership = false)]
         public void RequestInsertFuseServerRpc(int slot)
@@ -50,10 +70,13 @@ namespace LastWard.Puzzles
             if (breakerIndex != expected)
             {
                 breakerProgress.Value = 0;
+                correctMask.Value = 0;
+                lastWrongBreaker.Value = breakerIndex;
                 return;
             }
 
             breakerProgress.Value++;
+            correctMask.Value |= 1 << breakerIndex;
             if (breakerProgress.Value < correctBreakerOrder.Length) return;
 
             solved.Value = true;

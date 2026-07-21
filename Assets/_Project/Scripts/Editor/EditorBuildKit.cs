@@ -1,4 +1,6 @@
 #if UNITY_EDITOR
+using LastWard.Aftermath;
+using LastWard.Core;
 using LastWard.Entity;
 using LastWard.Knowledge;
 using LastWard.Net;
@@ -31,6 +33,19 @@ namespace LastWard.EditorTools
     public static class EditorBuildKit
     {
         public const string PlayerPrefabPath = "Assets/_Project/Prefabs/Player/NetworkPlayer.prefab";
+
+        /// <summary>
+        /// Project-level settings a networked host can't run correctly without. Run In Background is
+        /// the big one: without it Unity pauses when the window loses focus, which stalls the host's
+        /// UGS session heartbeats and drops the session — surfacing later as a mid-game "freeze"
+        /// plus a WebSocket-closed error.
+        /// </summary>
+        public static void EnsureProjectSettings()
+        {
+            if (PlayerSettings.runInBackground) return;
+            PlayerSettings.runInBackground = true;
+            Debug.Log("Enabled Player Settings > Run In Background (required for a stable networked host).");
+        }
 
         // --- player / networking ---
 
@@ -347,6 +362,103 @@ namespace LastWard.EditorTools
                 2f);
 
             return door;
+        }
+
+        // --- M7 aftermath/body-message system ---
+
+        /// <summary>Builds (or reuses, if already created) the 3 template prefabs + their
+        /// AftermathTemplateDefinition assets. Idempotent — safe to call from every scene builder;
+        /// each scene gets its own AftermathManager instance but they all share these same assets.</summary>
+        public static AftermathTemplateDefinition[] CreateAftermathTemplates()
+        {
+            var warningPrefab = GetOrBuildAftermathPrefab("Assets/_Project/Prefabs/Aftermath/Aftermath_Warning.prefab",
+                () => BuildAftermathBody("Aftermath_Warning", new Color(0.12f, 0.05f, 0.05f), "NOT THIS WAY", new Color(0.9f, 0.2f, 0.2f)));
+            var falseCluePrefab = GetOrBuildAftermathPrefab("Assets/_Project/Prefabs/Aftermath/Aftermath_FalseClue.prefab",
+                () => BuildAftermathBody("Aftermath_FalseClue", new Color(0.08f, 0.08f, 0.14f), "(scattered belongings)", new Color(0.5f, 0.55f, 0.7f)));
+            var mockeryPrefab = GetOrBuildAftermathPrefab("Assets/_Project/Prefabs/Aftermath/Aftermath_Mockery.prefab",
+                () => BuildAftermathBody("Aftermath_Mockery", new Color(0.1f, 0.05f, 0.12f), "THEY READ TOO MUCH", new Color(0.75f, 0.4f, 0.85f)));
+
+            // FalseClue only past tier 2 (needs trust built first, per the plan); Mockery is rarer
+            // (lower weight) than a plain Warning.
+            var warning = GetOrCreateAftermathDef("Assets/_Project/Data/AftermathWarning.asset", "aftermath_warning", AftermathType.Warning, 0, -1, 1f, warningPrefab);
+            var falseClue = GetOrCreateAftermathDef("Assets/_Project/Data/AftermathFalseClue.asset", "aftermath_false_clue", AftermathType.FalseClue, 2, -1, 1f, falseCluePrefab);
+            var mockery = GetOrCreateAftermathDef("Assets/_Project/Data/AftermathMockery.asset", "aftermath_mockery", AftermathType.Mockery, 0, -1, 0.6f, mockeryPrefab);
+
+            return new[] { warning, falseClue, mockery };
+        }
+
+        public static void CreateAftermathManager(AftermathTemplateDefinition[] templates)
+        {
+            // Plain MonoBehaviour, not a NetworkObject — see AftermathManager's doc comment for why
+            // (prefab registration must happen before networking starts, in Start(), not on network spawn).
+            var go = new GameObject("AftermathManager");
+            var manager = go.AddComponent<AftermathManager>();
+            SetRefArray(manager, "templates", templates);
+        }
+
+        public static void CreateAftermathAnchor(Vector3 position)
+        {
+            var go = new GameObject("AftermathAnchor");
+            go.transform.position = position;
+            go.AddComponent<AftermathAnchor>();
+        }
+
+        private static GameObject GetOrBuildAftermathPrefab(string path, System.Func<GameObject> build)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (existing != null) return existing;
+
+            var instance = build();
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+            var prefab = PrefabUtility.SaveAsPrefabAsset(instance, path);
+            UnityObject.DestroyImmediate(instance);
+            return prefab;
+        }
+
+        // Greybox-only: a lying "shrouded form" box + a floating flavor-text label. Real posed
+        // art/animation is M8; this proves the mechanic (right template, right place, all clients
+        // see it) rather than the fiction's visual fidelity.
+        private static GameObject BuildAftermathBody(string name, Color bodyColor, string flavorText, Color textColor)
+        {
+            var root = new GameObject(name);
+            root.AddComponent<NetworkObject>();
+
+            var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            body.name = "Body";
+            body.transform.SetParent(root.transform);
+            body.transform.localPosition = new Vector3(0f, 0.18f, 0f);
+            body.transform.localScale = new Vector3(0.6f, 0.35f, 1.8f);
+            SetMaterial(body, MakeMaterial(bodyColor));
+
+            var textGO = new GameObject("FlavorText", typeof(RectTransform));
+            textGO.transform.SetParent(root.transform);
+            textGO.transform.localPosition = new Vector3(0f, 1.1f, 0f);
+            var tmp = textGO.AddComponent<TextMeshPro>();
+            tmp.text = flavorText;
+            tmp.fontSize = 3f;
+            tmp.color = textColor;
+            tmp.alignment = TextAlignmentOptions.Center;
+            ((RectTransform)tmp.transform).sizeDelta = new Vector2(4f, 1f);
+
+            return root;
+        }
+
+        private static AftermathTemplateDefinition GetOrCreateAftermathDef(string path, string id, AftermathType type, int minTier, int maxTier, float weight, GameObject prefab)
+        {
+            var def = AssetDatabase.LoadAssetAtPath<AftermathTemplateDefinition>(path);
+            if (def == null)
+            {
+                def = ScriptableObject.CreateInstance<AftermathTemplateDefinition>();
+                def.templateId = id;
+                def.type = type;
+                def.minAggressionTier = minTier;
+                def.maxAggressionTier = maxTier;
+                def.selectionWeight = weight;
+                def.scenePrefab = prefab;
+                AssetDatabase.CreateAsset(def, path);
+                AssetDatabase.SaveAssets();
+            }
+            return def;
         }
 
         // --- notes ---
