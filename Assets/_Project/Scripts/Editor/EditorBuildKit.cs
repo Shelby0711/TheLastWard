@@ -555,31 +555,24 @@ namespace LastWard.EditorTools
 
         public static void FixSceneNetworkObjectHashes()
         {
-            // Sorted by hierarchy path before numbering. FindObjectsByType returns an ARBITRARY
-            // order, so numbering it directly gives a different hash to the same object on each
-            // machine that rebuilds — and NGO matches in-scene NetworkObjects between host and
-            // client purely by this hash. A mismatch produces "NetworkPrefab hash was not found!
-            // In-Scene placed NetworkObject soft synchronization failure" and the join dies.
-            // The path is stable because the build script creates everything in a fixed order.
-            var netObjs = UnityObject.FindObjectsByType<NetworkObject>(FindObjectsInactive.Exclude);
-            System.Array.Sort(netObjs, (a, b) =>
-                string.CompareOrdinal(StableHierarchyPath(a.transform), StableHierarchyPath(b.transform)));
-
-            uint hash = 0x1001;
-            foreach (var netObj in netObjs)
-            {
-                var so = new SerializedObject(netObj);
-                var prop = so.FindProperty("GlobalObjectIdHash");
-                if (prop != null)
-                {
-                    prop.uintValue = hash++;
-                    so.ApplyModifiedProperties();
-                }
-                else
-                {
-                    Debug.LogWarning("NetworkObject has no serialized GlobalObjectIdHash field — NGO API may have changed.");
-                }
-            }
+            // Deliberately does nothing now — see below. Kept as a named no-op so the call site in
+            // the level builder still reads in the right order, and so this explanation lives where
+            // the next person will look for it.
+            //
+            // This used to assign sequential ids (0x1001, 0x1002, …) to every in-scene
+            // NetworkObject. That was never effective: NetworkObject.OnValidate REGENERATES
+            // GlobalObjectIdHash from GlobalObjectId.GetGlobalObjectIdSlow() whenever the Editor
+            // revalidates outside play mode, so the written values were overwritten. It was worse
+            // than useless — it dirtied the scene with numbers that disagreed with the ones actually
+            // used at runtime, and made it look like hashes were under our control when they weren't.
+            //
+            // How it really works: an in-scene NetworkObject's hash derives from the scene's asset
+            // GUID plus the object's local file id within that scene. Both are identical on every
+            // machine **provided everyone loads the byte-identical committed scene file**. So the
+            // fix for "NetworkPrefab hash was not found! In-Scene placed NetworkObject soft
+            // synchronization failure" is never to renumber anything — it is to make sure host and
+            // client are running the same M5_Level.unity. One person builds and commits it;
+            // everyone else pulls and plays without rebuilding.
         }
 
         public static void CreateNetworkManager(GameObject playerPrefab)
@@ -590,10 +583,13 @@ namespace LastWard.EditorTools
 
             // The default queue (128 packets) overflows the moment a client joins: this scene holds
             // a lot of in-scene NetworkObjects — every door, pickup, container, puzzle and aftermath
-            // anchor — and they all synchronize in one burst, which floods the send queue and
-            // spams "send queue full (need to increase 'Max Packet Queue Size' parameter)".
-            transport.MaxPacketQueueSize = 512;
-            transport.MaxSendQueueSize = 1024 * 1024;
+            // anchor — and they all synchronize in one burst, which floods the send/receive queues.
+            //
+            // Written through SerializedObject, NOT by assigning the property. A plain assignment
+            // changes the in-memory backing field without telling Unity the object is dirty, so
+            // SaveScene writes the default straight back over it — which is why the error kept
+            // reporting the stock 128 after it was "fixed".
+            SetInt(transport, "m_MaxPacketQueueSize", 512);
 
             var so = new SerializedObject(nm);
             var playerProp = so.FindProperty("NetworkConfig.PlayerPrefab");
