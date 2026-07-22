@@ -7,7 +7,17 @@ namespace LastWard.Core
         Search,
         Chase,
         LostTarget,
-        Return
+        Return,
+        /// <summary>
+        /// Deliberately breaks off a live chase and clears out — the "it was right behind me, then
+        /// it was just gone" beat. Distinct from LostTarget/Return, which only happen when it has
+        /// already lost you. Appended last so existing serialized values keep their numbers.
+        /// </summary>
+        Withdraw,
+        /// <summary>Circling at a distance — close enough to be heard, not closing in.</summary>
+        Stalk,
+        /// <summary>Stopped dead, facing a player, watching. Ends in either a rush or a vanish.</summary>
+        Stare
     }
 
     public enum NoiseSource

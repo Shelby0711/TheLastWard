@@ -27,16 +27,18 @@ namespace LastWard.UI
             if (Instance == this) Instance = null;
         }
 
-        public void Show(bool escaped)
+        public void Show(bool escaped) => Show(escaped ? "YOU ESCAPED." : "THE HOSPITAL KEEPS YOU.");
+
+        public void Show(string message)
         {
-            if (label != null) label.text = escaped ? "YOU ESCAPED." : "THE HOSPITAL KEEPS YOU.";
+            if (label != null) label.text = message;
             if (root != null) root.SetActive(true);
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
 
             // Play at the local listener's position, not world origin — PlayClipAtPoint's temp
             // source is fully 3D by default, and origin could be far from wherever the player is.
-            var listener = FindFirstObjectByType<AudioListener>();
+            var listener = FindAnyObjectByType<AudioListener>();
             AudioSource.PlayClipAtPoint(ProceduralSfx.FarewellSting(), listener != null ? listener.transform.position : Vector3.zero);
         }
     }

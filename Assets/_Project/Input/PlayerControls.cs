@@ -353,6 +353,17 @@ public partial class @PlayerControls: IInputActionCollection2, IDisposable
                 },
                 {
                     ""name"": """",
+                    ""id"": ""eb8d49d7-5067-42b4-a297-202159c806eb"",
+                    ""path"": ""<Keyboard>/c"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": ""Keyboard&Mouse"",
+                    ""action"": ""Crouch"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
                     ""id"": ""265d4b1d-3696-4002-9ce1-c551b3d78886"",
                     ""path"": ""<Gamepad>/buttonEast"",
                     ""interactions"": """",

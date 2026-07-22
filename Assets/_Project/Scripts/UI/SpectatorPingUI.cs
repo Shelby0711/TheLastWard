@@ -38,7 +38,7 @@ namespace LastWard.UI
                 CancelInvoke(nameof(HideMarker));
                 Invoke(nameof(HideMarker), visibleSeconds);
             }
-            var listener = FindFirstObjectByType<AudioListener>();
+            var listener = FindAnyObjectByType<AudioListener>();
             AudioSource.PlayClipAtPoint(ProceduralSfx.PingChime(), listener != null ? listener.transform.position : Vector3.zero);
         }
 

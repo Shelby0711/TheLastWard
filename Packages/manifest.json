@@ -1,12 +1,16 @@
 {
   "dependencies": {
     "com.unity.ai.navigation": "2.0.14",
+    "com.unity.cloud.gltfast": "6.17.0",
     "com.unity.inputsystem": "1.19.0",
     "com.unity.netcode.gameobjects": "2.13.0",
     "com.unity.probuilder": "6.1.2",
     "com.unity.render-pipelines.universal": "17.0.3",
     "com.unity.services.multiplayer": "2.2.4",
     "com.unity.textmeshpro": "3.0.9",
-    "com.unity.ugui": "2.0.0"
+    "com.unity.ugui": "2.0.0",
+    "com.unity.modules.imageconversion": "1.0.0",
+    "com.unity.modules.unitywebrequest": "1.0.0",
+    "com.unity.modules.unitywebrequesttexture": "1.0.0"
   }
 }

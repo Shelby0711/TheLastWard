@@ -16,6 +16,11 @@ namespace LastWard.Player
         [SerializeField] private float standHeight = 1.8f;
         [SerializeField] private float crouchHeight = 1.0f;
         [SerializeField] private float crouchTransitionSpeed = 8f;
+        [Tooltip("Camera rig, dropped along with the collider so crouching actually changes what " +
+            "you can see — looking under a bed or into a low cupboard is the point of it.")]
+        [SerializeField] private Transform cameraPivot;
+        [SerializeField] private float standEyeHeight = 1.6f;
+        [SerializeField] private float crouchEyeHeight = 0.85f;
 
         [SerializeField] private float gravity = -18f;
         [Tooltip("How fast horizontal speed ramps in/out. Lower = floatier.")]
@@ -44,6 +49,14 @@ namespace LastWard.Player
             currentHeight = Mathf.Lerp(currentHeight, targetHeight, Time.deltaTime * crouchTransitionSpeed);
             controller.height = currentHeight;
             controller.center = new Vector3(0f, currentHeight * 0.5f, 0f);
+
+            if (cameraPivot != null)
+            {
+                float targetEye = IsCrouching ? crouchEyeHeight : standEyeHeight;
+                var local = cameraPivot.localPosition;
+                local.y = Mathf.Lerp(local.y, targetEye, Time.deltaTime * crouchTransitionSpeed);
+                cameraPivot.localPosition = local;
+            }
 
             float speed = IsCrouching ? crouchSpeed : (IsSprinting ? sprintSpeed : walkSpeed);
             Vector2 moveInput = Vector2.ClampMagnitude(input.Move, 1f);

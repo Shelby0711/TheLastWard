@@ -30,9 +30,18 @@ namespace LastWard.Aftermath
         private void Start()
         {
             if (NetworkManager.Singleton == null || templates == null) return;
+            var prefabs = NetworkManager.Singleton.NetworkConfig?.Prefabs;
+            if (prefabs == null) return;
             foreach (var t in templates)
-                if (t != null && t.scenePrefab != null)
+            {
+                if (t == null || t.scenePrefab == null) continue;
+                // The Editor auto-populates Assets/DefaultNetworkPrefabs.asset with every prefab
+                // that has a NetworkObject — which already covers these three. Registering again
+                // logs "duplicate GlobalObjectIdHash source entry" errors, so only add what's
+                // genuinely missing (still needed for builds/configs where that asset isn't used).
+                if (!prefabs.Contains(t.scenePrefab))
                     NetworkManager.Singleton.AddNetworkPrefab(t.scenePrefab);
+            }
         }
 
         private void OnDestroy()
@@ -77,7 +86,7 @@ namespace LastWard.Aftermath
 
         private static Vector3 FindNearestAnchor(Vector3 position)
         {
-            var anchors = FindObjectsByType<AftermathAnchor>(FindObjectsSortMode.None);
+            var anchors = FindObjectsByType<AftermathAnchor>();
             if (anchors.Length == 0) return position;
 
             Transform best = anchors[0].transform;

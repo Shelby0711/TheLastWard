@@ -33,6 +33,15 @@ namespace LastWard.Player
         {
             current = null;
 
+            // Inside a hiding spot the ray is worthless — it starts inside the collider it would
+            // have to hit — so targeting is suspended and the prompt comes from the overlay instead.
+            if (HidingSpot.LocalOccupied != null)
+            {
+                InteractionPromptUI.Instance?.SetPrompt(null);
+                CrosshairUI.Instance?.SetTargeted(false);
+                return;
+            }
+
             if (Physics.Raycast(interactCamera.transform.position, interactCamera.transform.forward, out var hit, interactRange, interactableMask, QueryTriggerInteraction.Ignore))
             {
                 // GetComponentInParent, not TryGetComponent: colliders usually sit on a child
@@ -46,6 +55,19 @@ namespace LastWard.Player
 
         private void TryInteract()
         {
+            // Same key gets you out as got you in.
+            var hidingIn = HidingSpot.LocalOccupied;
+            if (hidingIn != null)
+            {
+                hidingIn.RequestExit();
+                return;
+            }
+
+            // Swinging takes priority over interacting: if the Entity is on top of you and you're
+            // holding a pipe, the button you'll be mashing is this one, and reading a note instead
+            // would be a bad joke. Only consumes the press when a swing actually connects.
+            if (PlayerMeleeDefense.Local != null && PlayerMeleeDefense.Local.TryStrike()) return;
+
             if (current != null && current.CanInteract(LocalPlayerId))
                 current.Interact(LocalPlayerId);
         }

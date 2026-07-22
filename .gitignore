@@ -61,6 +61,7 @@ Thumbs.db
 /*.md
 !/CLAUDE.md
 
-# Large asset files
-/Game_Assets/hospital_props_gltf.zip
-/Game_Assets/unfinished_abandoned_building_in_riga_gltf/scene.bin
+# Raw downloaded asset packs — never committed. Only the specific processed files copied into
+# Assets/_Project/Art/ (regraded, prefab-wrapped) are part of the actual game and get tracked.
+/Game_Assets/
+/ThirdParty/

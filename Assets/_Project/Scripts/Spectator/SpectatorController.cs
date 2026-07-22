@@ -91,14 +91,18 @@ namespace LastWard.Spectator
         private List<PlayerNetworkState> LivingPlayers()
         {
             var result = new List<PlayerNetworkState>();
-            foreach (var s in FindObjectsByType<PlayerNetworkState>(FindObjectsSortMode.InstanceID))
+            foreach (var s in FindObjectsByType<PlayerNetworkState>())
                 if (s != state && s.IsAlive) result.Add(s);
+            // Sorted by owner id, not left in scene order: cycling with Q/E needs a stable sequence.
+            // The old InstanceID ordering was per-process anyway, so every client was cycling
+            // through the same players in a different order.
+            result.Sort((a, b) => a.OwnerClientId.CompareTo(b.OwnerClientId));
             return result;
         }
 
         public static bool AnyOtherAlive(PlayerNetworkState self)
         {
-            foreach (var s in FindObjectsByType<PlayerNetworkState>(FindObjectsSortMode.InstanceID))
+            foreach (var s in FindObjectsByType<PlayerNetworkState>())
                 if (s != self && s.IsAlive) return true;
             return false;
         }
