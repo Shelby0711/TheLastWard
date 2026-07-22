@@ -233,6 +233,19 @@ namespace LastWard.EditorTools
         /// white. Smoothness is zeroed — these textures are already fully shaded by hand, and any
         /// specular highlight on top just reads as "wrong colour".
         /// </summary>
+        public static Material MakeTexturedMaterial(string texRelPath, string materialName, bool alphaClip)
+        {
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(ArtRoot + texRelPath);
+            if (tex == null)
+            {
+                Debug.LogWarning($"[ArtPass] Texture not found: {ArtRoot}{texRelPath}");
+                return null;
+            }
+            ApplyPsxImportSettings(ArtRoot + texRelPath);
+            if (alphaClip) EnsureAlphaIsTransparency(ArtRoot + texRelPath);
+            return MakeMaterialFromTexture(tex, materialName, alphaClip);
+        }
+
         public static Material MakeTexturedMaterial(string texRelPath, string materialName)
         {
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(ArtRoot + texRelPath);
@@ -430,6 +443,138 @@ namespace LastWard.EditorTools
             if (importer.alphaIsTransparency) return;
             importer.alphaIsTransparency = true;
             importer.SaveAndReimport();
+        }
+
+        /// <summary>
+        /// Textures a greybox box so the texture repeats at a real-world size instead of being
+        /// stretched once across the whole surface. A Unity cube's UVs run 0–1 per face, so an 8m
+        /// wall and a 1m crate would otherwise show the same texture at wildly different scales —
+        /// which is what makes procedural rooms look like flat-shaded programmer art.
+        ///
+        /// Tiling is derived from the box's own scale, and materials are cached per
+        /// texture+tiling combination so a corridor of same-sized walls shares one material rather
+        /// than creating dozens.
+        /// </summary>
+        /// <param name="metresPerTile">World size one texture repeat covers. Smaller = busier.</param>
+        public static void ApplyTiledMaterial(GameObject box, string texRelPath, float metresPerTile = 2f, Color? tint = null)
+        {
+            if (box == null) return;
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(ArtRoot + texRelPath);
+            if (tex == null)
+            {
+                Debug.LogWarning($"[ArtPass] Texture not found: {ArtRoot}{texRelPath}");
+                return;
+            }
+            ApplyPsxImportSettings(ArtRoot + texRelPath);
+            EnsureRepeatWrap(ArtRoot + texRelPath);
+
+            // The two largest dimensions are the face the player actually looks at.
+            Vector3 size = box.transform.localScale;
+            float a = Mathf.Max(size.x, size.z);
+            float b = size.y > 0.5f ? size.y : Mathf.Min(size.x, size.z);
+            var tiling = new Vector2(
+                Mathf.Max(1f, Mathf.Round(a / metresPerTile)),
+                Mathf.Max(1f, Mathf.Round(b / metresPerTile)));
+
+            var color = tint ?? Color.white;
+            string matName = $"M_{System.IO.Path.GetFileNameWithoutExtension(texRelPath)}_{tiling.x}x{tiling.y}" +
+                             (tint.HasValue ? $"_{ColorUtility.ToHtmlStringRGB(color)}" : "");
+
+            EnsureMaterialFolder();
+            string path = $"{MaterialFolder}/{matName}.mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                var shader = Shader.Find("Universal Render Pipeline/Lit");
+                if (shader == null) return;
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.SetTexture("_BaseMap", tex);
+            mat.mainTexture = tex;
+            mat.SetColor("_BaseColor", color);
+            mat.SetFloat("_Smoothness", 0f);
+            mat.SetFloat("_Metallic", 0f);
+            mat.mainTextureScale = tiling;
+            EditorUtility.SetDirty(mat);
+
+            SetMaterialOn(box, mat);
+        }
+
+        private static void SetMaterialOn(GameObject go, Material mat)
+        {
+            if (go.TryGetComponent<Renderer>(out var renderer)) renderer.sharedMaterial = mat;
+        }
+
+        // Tiling only works if the texture repeats rather than clamping at its edges.
+        private static void EnsureRepeatWrap(string assetPath)
+        {
+            if (AssetImporter.GetAtPath(assetPath) is not TextureImporter importer) return;
+            if (importer.wrapMode == TextureWrapMode.Repeat) return;
+            importer.wrapMode = TextureWrapMode.Repeat;
+            importer.SaveAndReimport();
+        }
+
+        /// <summary>
+        /// Rotates a model so its LONGEST axis points up. Exporters disagree about which axis is
+        /// "up" — the retro tree pack is authored Z-up, so its trees measure 1 × 1 × 2.2 and
+        /// FitHeight was scaling the trunk's *width* to the target, producing giant slabs floating
+        /// off the ground. Standing it up first makes every later measurement mean what it says.
+        /// </summary>
+        public static void StandUpright(GameObject go)
+        {
+            if (!TryGetBounds(go, out var b)) return;
+            var s = b.size;
+            if (s.y >= s.x && s.y >= s.z) return;                       // already tallest on Y
+            if (s.z > s.x) go.transform.Rotate(-90f, 0f, 0f, Space.World);  // Z is up -> Y
+            else go.transform.Rotate(0f, 0f, 90f, Space.World);             // X is up -> Y
+        }
+
+        /// <summary>
+        /// Rotates a flat object so it lies face-up. The letter sheets measure 1.9 × 2.0 × 0.003 —
+        /// thinnest on Z, i.e. a vertical plane — so notes stood on their edge like headstones
+        /// until this ran.
+        /// </summary>
+        public static void LayFlat(GameObject go)
+        {
+            if (!TryGetBounds(go, out var b)) return;
+            var s = b.size;
+            if (s.y <= s.x && s.y <= s.z) return;                       // already thinnest on Y
+            if (s.z < s.x) go.transform.Rotate(90f, 0f, 0f, Space.World);   // Z normal -> Y
+            else go.transform.Rotate(0f, 0f, 90f, Space.World);             // X normal -> Y
+        }
+
+        /// <summary>First descendant whose name starts with <paramref name="namePrefix"/>, or null.</summary>
+        public static Transform FindDescendant(GameObject root, string namePrefix)
+        {
+            if (root == null) return null;
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                if (t.name.StartsWith(namePrefix, System.StringComparison.OrdinalIgnoreCase)) return t;
+            return null;
+        }
+
+        /// <summary>
+        /// Turns a model so a named feature on it faces <paramref name="worldFacing"/>.
+        ///
+        /// Far more reliable than inferring "front" from the bounding box. A wall-mounted fuse box's
+        /// largest axis is its open door swinging sideways, not its depth — so a bounds guess turned
+        /// it to face the wall and stick out horizontally. Aiming an actual feature (a fuse slot)
+        /// uses the model's own semantics instead.
+        /// </summary>
+        public static void FaceFeatureTowards(GameObject root, string featurePrefix, Vector3 worldFacing)
+        {
+            var feature = FindDescendant(root, featurePrefix);
+            if (feature == null || !TryGetBounds(root, out var bounds)) return;
+
+            Vector3 outward = feature.position - bounds.center;
+            outward.y = 0f;
+            if (outward.sqrMagnitude < 0.0001f) return;
+
+            Vector3 want = worldFacing;
+            want.y = 0f;
+            if (want.sqrMagnitude < 0.0001f) return;
+
+            root.transform.Rotate(0f, Vector3.SignedAngle(outward, want, Vector3.up), 0f, Space.World);
         }
 
         public static Material MakeMaterialFromTexture(Texture2D tex, string materialName, bool alphaClip = false)

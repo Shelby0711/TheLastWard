@@ -66,8 +66,11 @@ namespace LastWard.EditorTools
             // Gates the actual passage into the Ward — solving it is what the objective HUD's
             // "Restore power." -> "Push further into the ward." transition represents.
             EditorBuildKit.CreateFusePuzzle(
-                "Door_ToWard", new Vector3(0f, 0f, 10f),
-                new Vector3(1.5f, 1f, 8f),
+                // Hinge at the LEFT EDGE of the 2m gap, panel spanning the full opening.
+                "Door_ToWard", new Vector3(-1f, 0f, 10f),
+                // Breaker box mounted ON the north wall (surface z=9.85) rather than floating in
+                // mid-room, and clear of the doorway at x[-1,1].
+                new Vector3(2.4f, 1.4f, 9.8f),
                 new Vector3(-3f, 0.3f, 3f), new Vector3(3f, 0.3f, 3f),
                 new Vector3(-3.2f, 0f, 7.6f),   // on the floor by the breaker box
                 out var fusePickups);
@@ -264,6 +267,36 @@ namespace LastWard.EditorTools
                 UnityObject.DestroyImmediate(collider);
         }
 
+        /// <summary>
+        /// Randomises where the key and crowbar appear each run, among points along the trail
+        /// between the car and the doors. Fixed positions meant a second playthrough skipped the
+        /// search entirely; keeping every point in the Exterior keeps them reachable before the
+        /// fuse door, which is what stops a run becoming unwinnable.
+        /// </summary>
+        private static void ShuffleToolSpawns(GameObject key, GameObject crowbar)
+        {
+            if (key == null || crowbar == null) return;
+
+            var go = new GameObject("ClueSpawnShuffler_Tools");
+            go.AddComponent<Unity.Netcode.NetworkObject>();
+            var shuffler = go.AddComponent<LastWard.Puzzles.ClueSpawnShuffler>();
+            EditorBuildKit.SetRefArray(shuffler, "clues",
+                new UnityEngine.Object[] { key.transform, crowbar.transform });
+
+            // Offset sideways off the trail centre so items sit at its edge — findable, but not
+            // dropped in the player's path.
+            var points = new System.Collections.Generic.List<UnityEngine.Object>();
+            (float z, float side)[] spots =
+            {
+                (-27f, 1f), (-24f, -1f), (-20f, 1f), (-17f, -1f),
+                (-12f, 1f), (-9f, -1f), (-5f, 1f), (-3f, -1f),
+            };
+            foreach (var (z, side) in spots)
+                points.Add(EditorBuildKit.MakePoint(
+                    new Vector3(TrailCentreX(z) + side * (TrailHalfWidth - 0.5f), 0.2f, z)));
+            EditorBuildKit.SetRefArray(shuffler, "candidatePoints", points.ToArray());
+        }
+
         // Fuses are stashed inside containers rather than left lying on the floor, and which
         // container holds them changes between runs — so the opening has to be searched, not
         // remembered. The candidate points are the containers' interiors, so a "shuffled" fuse is
@@ -282,6 +315,31 @@ namespace LastWard.EditorTools
             for (int i = 0; i < fusePickups.Length; i++) clues[i] = fusePickups[i].transform;
             EditorBuildKit.SetRefArray(shuffler, "clues", clues);
             EditorBuildKit.SetRefArray(shuffler, "candidatePoints", stashes);
+
+            // One fuse is pinned to an always-open spot rather than shuffled. Both fuses are needed
+            // to leave the Lobby, and the shuffle can otherwise put both behind the key and the
+            // crowbar at once — if a player then misses either tool, stage one is unwinnable and
+            // the run is dead with no way to tell why. The other fuse still moves every run, so
+            // searching still matters.
+            if (fusePickups.Length > 0 && fusePickups[0] != null)
+            {
+                var pinned = EditorBuildKit.MakePoint(new Vector3(-1.9f, 0.25f, 2.2f));
+                pinned.name = "FuseGuaranteedPoint";
+                var remaining = new System.Collections.Generic.List<UnityEngine.Object>();
+                for (int i = 1; i < fusePickups.Length; i++) remaining.Add(fusePickups[i].transform);
+
+                if (remaining.Count > 0)
+                {
+                    var second = new GameObject("ClueSpawnShuffler_FuseB");
+                    second.AddComponent<Unity.Netcode.NetworkObject>();
+                    var secondShuffler = second.AddComponent<LastWard.Puzzles.ClueSpawnShuffler>();
+                    EditorBuildKit.SetRefArray(secondShuffler, "clues", remaining.ToArray());
+                    EditorBuildKit.SetRefArray(secondShuffler, "candidatePoints", stashes);
+                    // The first shuffler now only owns the pinned fuse.
+                    EditorBuildKit.SetRefArray(shuffler, "clues", new UnityEngine.Object[] { fusePickups[0].transform });
+                    EditorBuildKit.SetRefArray(shuffler, "candidatePoints", new UnityEngine.Object[] { pinned });
+                }
+            }
         }
 
         /// <summary>
@@ -329,13 +387,15 @@ namespace LastWard.EditorTools
             // the very puzzle it's needed to solve — an unwinnable run. Everything required to open
             // the Lobby's stashes is reachable before the player ever enters the building.
             // The kit has a real key mesh; it has no crowbar, so that one stays a shaped block.
-            // Y is the surface the item rests ON, not its centre — the key sits on the car's bonnet,
-            // the crowbar on the ground.
-            EditorBuildKit.CreateToolPickup("key", "rusted key", new Vector3(1.35f, 0.86f, -14.3f),
+            // Both tools sit near the building, just off the trail, and move between runs. They
+            // must stay reachable BEFORE the Lobby: the fuse shuffle can put both fuses behind the
+            // key and the crowbar at once, so a tool locked past the fuse door is unwinnable.
+            var key = EditorBuildKit.CreateToolPickup("key", "rusted key", Vector3.zero,
                 new Color(0.85f, 0.72f, 0.25f), meshNamePrefix: "Key", texFile: "LockAndKey_Tex_1024.png");
-            EditorBuildKit.CreateToolPickup("crowbar", "crowbar", new Vector3(-8.4f, 0f, -21f),
+            var crowbar = EditorBuildKit.CreateToolPickup("crowbar", "crowbar", Vector3.zero,
                 new Color(0.75f, 0.3f, 0.2f),
                 standaloneModel: "Props/Crowbar/scene.gltf", standaloneTextures: "Props/Crowbar/textures");
+            ShuffleToolSpawns(key, crowbar);
 
             // Weapons for the whole level: two pipes and a knife, all deep enough in that you've met
             // the Entity before you find one, and all worth exactly one swing — see
@@ -355,17 +415,15 @@ namespace LastWard.EditorTools
         {
             const float wallHeight = 3f;
             const float t = 0.3f;
-
-            var mat = EditorBuildKit.MakeMaterial(new Color(0.35f, 0.35f, 0.37f));
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Lobby_Floor", new Vector3(0f, -0.1f, 5f), new Vector3(10f, 0.2f, 10f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Lobby_Ceiling", new Vector3(0f, wallHeight, 5f), new Vector3(10f, 0.2f, 10f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Lobby_Wall_E", new Vector3(5f, wallHeight / 2f, 5f), new Vector3(t, wallHeight, 10f + t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Lobby_Wall_W", new Vector3(-5f, wallHeight / 2f, 5f), new Vector3(t, wallHeight, 10f + t)), mat);
+            Tile(EditorBuildKit.CreateBox("Lobby_Floor", new Vector3(0f, -0.1f, 5f), new Vector3(10f, 0.2f, 10f)), "Textures/Floor_Tile.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Lobby_Ceiling", new Vector3(0f, wallHeight, 5f), new Vector3(10f, 0.2f, 10f)), "Textures/Floor_Stone.png", 3f);
+            Tile(EditorBuildKit.CreateBox("Lobby_Wall_E", new Vector3(5f, wallHeight / 2f, 5f), new Vector3(t, wallHeight, 10f + t)), "Textures/Wall_Tile.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Lobby_Wall_W", new Vector3(-5f, wallHeight / 2f, 5f), new Vector3(t, wallHeight, 10f + t)), "Textures/Wall_Tile.png", 2f);
             // South and north walls in two segments each, leaving x:[-1,1] open as doorways.
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Lobby_Wall_S_Left", new Vector3(-3f, wallHeight / 2f, 0f), new Vector3(4f, wallHeight, t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Lobby_Wall_S_Right", new Vector3(3f, wallHeight / 2f, 0f), new Vector3(4f, wallHeight, t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Lobby_Wall_N_Left", new Vector3(-3f, wallHeight / 2f, 10f), new Vector3(4f, wallHeight, t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Lobby_Wall_N_Right", new Vector3(3f, wallHeight / 2f, 10f), new Vector3(4f, wallHeight, t)), mat);
+            Tile(EditorBuildKit.CreateBox("Lobby_Wall_S_Left", new Vector3(-3f, wallHeight / 2f, 0f), new Vector3(4f, wallHeight, t)), "Textures/Wall_Tile.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Lobby_Wall_S_Right", new Vector3(3f, wallHeight / 2f, 0f), new Vector3(4f, wallHeight, t)), "Textures/Wall_Tile.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Lobby_Wall_N_Left", new Vector3(-3f, wallHeight / 2f, 10f), new Vector3(4f, wallHeight, t)), "Textures/Wall_Tile.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Lobby_Wall_N_Right", new Vector3(3f, wallHeight / 2f, 10f), new Vector3(4f, wallHeight, t)), "Textures/Wall_Tile.png", 2f);
 
             var fill = new GameObject("Lobby_FillLight").AddComponent<Light>();
             fill.type = LightType.Point;
@@ -381,15 +439,13 @@ namespace LastWard.EditorTools
         {
             const float wallHeight = 3f;
             const float t = 0.3f;
-
-            var mat = EditorBuildKit.MakeMaterial(new Color(0.3f, 0.3f, 0.32f));
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Ward_Floor", new Vector3(0f, -0.1f, 15f), new Vector3(10f, 0.2f, 10f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Ward_Ceiling", new Vector3(0f, wallHeight, 15f), new Vector3(10f, 0.2f, 10f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Ward_Wall_E", new Vector3(5f, wallHeight / 2f, 15f), new Vector3(t, wallHeight, 10f + t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Ward_Wall_W", new Vector3(-5f, wallHeight / 2f, 15f), new Vector3(t, wallHeight, 10f + t)), mat);
+            Tile(EditorBuildKit.CreateBox("Ward_Floor", new Vector3(0f, -0.1f, 15f), new Vector3(10f, 0.2f, 10f)), "Textures/Floor_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Ward_Ceiling", new Vector3(0f, wallHeight, 15f), new Vector3(10f, 0.2f, 10f)), "Textures/Floor_Stone.png", 3f);
+            Tile(EditorBuildKit.CreateBox("Ward_Wall_E", new Vector3(5f, wallHeight / 2f, 15f), new Vector3(t, wallHeight, 10f + t)), "Textures/Wall_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Ward_Wall_W", new Vector3(-5f, wallHeight / 2f, 15f), new Vector3(t, wallHeight, 10f + t)), "Textures/Wall_Stone.png", 2f);
             // North wall in two segments, leaving x:[-1.5,1.5] open into the Corridor.
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Ward_Wall_N_Left", new Vector3(-3.25f, wallHeight / 2f, 20f), new Vector3(3.5f, wallHeight, t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Ward_Wall_N_Right", new Vector3(3.25f, wallHeight / 2f, 20f), new Vector3(3.5f, wallHeight, t)), mat);
+            Tile(EditorBuildKit.CreateBox("Ward_Wall_N_Left", new Vector3(-3.25f, wallHeight / 2f, 20f), new Vector3(3.5f, wallHeight, t)), "Textures/Wall_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Ward_Wall_N_Right", new Vector3(3.25f, wallHeight / 2f, 20f), new Vector3(3.5f, wallHeight, t)), "Textures/Wall_Stone.png", 2f);
 
             var fill = new GameObject("Ward_FillLight").AddComponent<Light>();
             fill.type = LightType.Point;
@@ -407,26 +463,60 @@ namespace LastWard.EditorTools
             const float wallHeight = 3f;
             const float t = 0.3f;
 
-            var mat = EditorBuildKit.MakeMaterial(new Color(0.22f, 0.22f, 0.24f));
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Corridor_Floor", new Vector3(0f, -0.1f, 32f), new Vector3(8f, 0.2f, 24f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Corridor_Ceiling", new Vector3(0f, wallHeight, 32f), new Vector3(8f, 0.2f, 24f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Corridor_Wall_E", new Vector3(4f, wallHeight / 2f, 32f), new Vector3(t, wallHeight, 24f + t)), mat);
-            // West wall in two segments, leaving z:[29,32] open so the alcove (west of x=-4) is reachable.
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Corridor_Wall_W_S", new Vector3(-4f, wallHeight / 2f, 24.5f), new Vector3(t, wallHeight, 9f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Corridor_Wall_W_N", new Vector3(-4f, wallHeight / 2f, 38f), new Vector3(t, wallHeight, 12f)), mat);
+            // Textured rather than flat-shaded. Walls/floor/ceiling repeat their texture at a real
+            // world size (see ArtKit.ApplyTiledMaterial), which is most of the difference between
+            // "greybox" and "a place".
+            const string wallTex = "Textures/Wall_Stone.png";
+            const string wallAlt = "Textures/Wall_Tile.png";
+            const string floorTex = "Textures/Floor_Metal.png";
+            const string ceilTex = "Textures/Floor_Stone.png";
+
+            Tile(EditorBuildKit.CreateBox("Corridor_Floor", new Vector3(0f, -0.1f, 32f), new Vector3(8f, 0.2f, 24f)), floorTex, 2f);
+            Tile(EditorBuildKit.CreateBox("Corridor_Ceiling", new Vector3(0f, wallHeight, 32f), new Vector3(8f, 0.2f, 24f)), ceilTex, 3f);
+            // East wall in three segments, leaving 2.2m doorways at z=24 and z=34 for the side
+            // rooms. These gaps MUST match BuildSideRoom's doorway centres or the rooms seal shut.
+            Tile(EditorBuildKit.CreateBox("Corridor_Wall_E_A", new Vector3(4f, wallHeight / 2f, 21.45f), new Vector3(t, wallHeight, 2.9f)), wallTex, 2f);
+            Tile(EditorBuildKit.CreateBox("Corridor_Wall_E_B", new Vector3(4f, wallHeight / 2f, 29f), new Vector3(t, wallHeight, 7.8f)), wallTex, 2f);
+            Tile(EditorBuildKit.CreateBox("Corridor_Wall_E_C", new Vector3(4f, wallHeight / 2f, 39.6f), new Vector3(t, wallHeight, 9f)), wallTex, 2f);
+            // West wall in three segments now: the alcove gap at z:[29,32] plus two doorways into
+            // the side rooms.
+            Tile(EditorBuildKit.CreateBox("Corridor_Wall_W_S", new Vector3(-4f, wallHeight / 2f, 24.5f), new Vector3(t, wallHeight, 9f)), wallTex, 2f);
+            // North-west wall in two segments, leaving a doorway at z=41 into the records room.
+            Tile(EditorBuildKit.CreateBox("Corridor_Wall_W_N_A", new Vector3(-4f, wallHeight / 2f, 35.95f), new Vector3(t, wallHeight, 7.9f)), wallTex, 2f);
+            Tile(EditorBuildKit.CreateBox("Corridor_Wall_W_N_B", new Vector3(-4f, wallHeight / 2f, 43.1f), new Vector3(t, wallHeight, 2.1f)), wallTex, 2f);
 
             // The loop-creating pillar: leaves ~3.25m paths on either side.
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Corridor_Pillar", new Vector3(0f, wallHeight / 2f, 31f), new Vector3(1.5f, wallHeight, 14f)), mat);
+            Tile(EditorBuildKit.CreateBox("Corridor_Pillar", new Vector3(0f, wallHeight / 2f, 31f), new Vector3(1.5f, wallHeight, 14f)), wallAlt, 2f);
 
             // Dead-end alcove off the west path.
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Alcove_Floor", new Vector3(-5.25f, -0.1f, 30.5f), new Vector3(2.5f, 0.2f, 3f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Alcove_Ceiling", new Vector3(-5.25f, wallHeight, 30.5f), new Vector3(2.5f, 0.2f, 3f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Alcove_Wall_Far", new Vector3(-6.5f, wallHeight / 2f, 30.5f), new Vector3(t, wallHeight, 3f + t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Alcove_Wall_S", new Vector3(-5.25f, wallHeight / 2f, 29f), new Vector3(2.5f, wallHeight, t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Alcove_Wall_N", new Vector3(-5.25f, wallHeight / 2f, 32f), new Vector3(2.5f, wallHeight, t)), mat);
+            Tile(EditorBuildKit.CreateBox("Alcove_Floor", new Vector3(-5.25f, -0.1f, 30.5f), new Vector3(2.5f, 0.2f, 3f)), floorTex, 2f);
+            Tile(EditorBuildKit.CreateBox("Alcove_Ceiling", new Vector3(-5.25f, wallHeight, 30.5f), new Vector3(2.5f, 0.2f, 3f)), ceilTex, 3f);
+            Tile(EditorBuildKit.CreateBox("Alcove_Wall_Far", new Vector3(-6.5f, wallHeight / 2f, 30.5f), new Vector3(t, wallHeight, 3f + t)), wallAlt, 2f);
+            Tile(EditorBuildKit.CreateBox("Alcove_Wall_S", new Vector3(-5.25f, wallHeight / 2f, 29f), new Vector3(2.5f, wallHeight, t)), wallAlt, 2f);
+            Tile(EditorBuildKit.CreateBox("Alcove_Wall_N", new Vector3(-5.25f, wallHeight / 2f, 32f), new Vector3(2.5f, wallHeight, t)), wallAlt, 2f);
 
-            AddDimLight(new Vector3(0f, wallHeight - 0.3f, 24f), 0.1f);
-            AddDimLight(new Vector3(0f, wallHeight - 0.3f, 40f), 0.1f);
+            // Side rooms branching EAST off the corridor. Each is a distinct texture set so the run
+            // doesn't read as one repeated box, and each is a genuine dead end — somewhere to be
+            // caught, and somewhere worth searching.
+            BuildSideRoom("Room_Storage", new Vector3(7.5f, 0f, 24f), new Vector2(7f, 6f),
+                "Textures/Wall_Brick.png", "Textures/Floor_Wood.png", new Color(1f, 0.8f, 0.55f));
+            BuildSideRoom("Room_Washroom", new Vector3(7.5f, 0f, 34f), new Vector2(7f, 6f),
+                "Textures/Wall_Tile.png", "Textures/Floor_Tile.png", new Color(0.7f, 0.95f, 1f));
+            BuildSideRoom("Room_Records", new Vector3(-8.5f, 0f, 41f), new Vector2(6f, 6f),
+                "Textures/Wall_StoneAlt.png", "Textures/Floor_Stone.png", new Color(1f, 0.55f, 0.3f));
+
+            // Failing tubes down the length of the corridor. Alternating sodium-yellow and a sick
+            // red so the run reads as two different failures rather than one repeated prop — and
+            // the red ones sit at the far end, where the player is heading.
+            float[] tubeZ = { 22.5f, 27f, 31.5f, 36f, 40.5f, 43f };
+            for (int i = 0; i < tubeZ.Length; i++)
+            {
+                bool red = i >= tubeZ.Length - 2;
+                AddFlickeringTube(new Vector3(0f, wallHeight - 0.25f, tubeZ[i]),
+                    red ? new Color(1f, 0.22f, 0.16f) : new Color(1f, 0.86f, 0.55f),
+                    red ? 0.5f : 0.75f);
+            }
+            AddFlickeringTube(new Vector3(-5.25f, wallHeight - 0.25f, 30.5f), new Color(1f, 0.25f, 0.18f), 0.4f);
         }
 
         // Exit Route spans x:[-4,4], z:[44,54] (matching the Corridor's width, so they meet with no
@@ -436,20 +526,190 @@ namespace LastWard.EditorTools
         {
             const float wallHeight = 3f;
             const float t = 0.3f;
-
-            var mat = EditorBuildKit.MakeMaterial(new Color(0.35f, 0.33f, 0.3f));
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Exit_Floor", new Vector3(0f, -0.1f, 49f), new Vector3(8f, 0.2f, 10f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Exit_Ceiling", new Vector3(0f, wallHeight, 49f), new Vector3(8f, 0.2f, 10f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Exit_Wall_E", new Vector3(4f, wallHeight / 2f, 49f), new Vector3(t, wallHeight, 10f + t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Exit_Wall_W", new Vector3(-4f, wallHeight / 2f, 49f), new Vector3(t, wallHeight, 10f + t)), mat);
+            Tile(EditorBuildKit.CreateBox("Exit_Floor", new Vector3(0f, -0.1f, 49f), new Vector3(8f, 0.2f, 10f)), "Textures/Floor_Wood.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Exit_Ceiling", new Vector3(0f, wallHeight, 49f), new Vector3(8f, 0.2f, 10f)), "Textures/Floor_Stone.png", 3f);
+            Tile(EditorBuildKit.CreateBox("Exit_Wall_E", new Vector3(4f, wallHeight / 2f, 49f), new Vector3(t, wallHeight, 10f + t)), "Textures/Wall_Brick.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Exit_Wall_W", new Vector3(-4f, wallHeight / 2f, 49f), new Vector3(t, wallHeight, 10f + t)), "Textures/Wall_Brick.png", 2f);
             // North wall in two segments, leaving x:[-1.5,1.5] for Door_FinalExit.
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Exit_Wall_N_Left", new Vector3(-2.75f, wallHeight / 2f, 54f), new Vector3(2.5f, wallHeight, t)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Exit_Wall_N_Right", new Vector3(2.75f, wallHeight / 2f, 54f), new Vector3(2.5f, wallHeight, t)), mat);
+            Tile(EditorBuildKit.CreateBox("Exit_Wall_N_Left", new Vector3(-2.75f, wallHeight / 2f, 54f), new Vector3(2.5f, wallHeight, t)), "Textures/Wall_Brick.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Exit_Wall_N_Right", new Vector3(2.75f, wallHeight / 2f, 54f), new Vector3(2.5f, wallHeight, t)), "Textures/Wall_Brick.png", 2f);
 
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Outside_Floor", new Vector3(0f, -0.1f, 56f), new Vector3(8f, 0.2f, 4f)), mat);
-            EditorBuildKit.SetMaterial(EditorBuildKit.CreateBox("Outside_Boundary_Far", new Vector3(0f, wallHeight / 2f, 58f), new Vector3(8f + t, wallHeight, t)), mat);
+            Tile(EditorBuildKit.CreateBox("Outside_Floor", new Vector3(0f, -0.1f, 56f), new Vector3(8f, 0.2f, 4f)), "Textures/Floor_Wood.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Outside_Boundary_Far", new Vector3(0f, wallHeight / 2f, 58f), new Vector3(8f + t, wallHeight, t)), "Textures/Wall_Brick.png", 2f);
 
             AddDimLight(new Vector3(0f, wallHeight - 0.3f, 49f), 0.2f);
+        }
+
+        /// <summary>Textures a greybox box so its texture repeats at a real-world size.</summary>
+        private static void Tile(GameObject box, string texRelPath, float metresPerTile, Color? tint = null)
+            => ArtKit.ApplyTiledMaterial(box, texRelPath, metresPerTile, tint);
+
+        /// <summary>
+        /// A dead-end room off the Service Corridor. Built procedurally so the doorway lines up
+        /// exactly with the corridor wall it cuts through — the thing that made imported corridor
+        /// assets unusable was that no such guarantee was possible.
+        ///
+        /// Each room takes its own wall/floor textures and its own light colour, so three rooms
+        /// built from the same code still read as three different places.
+        /// </summary>
+        private static void BuildSideRoom(string name, Vector3 centre, Vector2 size,
+            string wallTex, string floorTex, Color lightColor)
+        {
+            const float h = 3f;
+            const float t = 0.3f;
+            float hw = size.x / 2f, hd = size.y / 2f;
+
+            // Which side the corridor is on: rooms east of the corridor open west, and vice versa.
+            bool opensWest = centre.x > 0f;
+            float doorX = opensWest ? centre.x - hw : centre.x + hw;
+            const float doorHalf = 1.1f;
+
+            Tile(EditorBuildKit.CreateBox($"{name}_Floor", new Vector3(centre.x, -0.1f, centre.z), new Vector3(size.x, 0.2f, size.y)), floorTex, 2f);
+            Tile(EditorBuildKit.CreateBox($"{name}_Ceiling", new Vector3(centre.x, h, centre.z), new Vector3(size.x, 0.2f, size.y)), floorTex, 3f);
+
+            // Far wall and the two side walls are solid.
+            float farX = opensWest ? centre.x + hw : centre.x - hw;
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_Far", new Vector3(farX, h / 2f, centre.z), new Vector3(t, h, size.y + t)), wallTex, 2f);
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_S", new Vector3(centre.x, h / 2f, centre.z - hd), new Vector3(size.x, h, t)), wallTex, 2f);
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_N", new Vector3(centre.x, h / 2f, centre.z + hd), new Vector3(size.x, h, t)), wallTex, 2f);
+
+            // Door wall in two segments, leaving a gap centred on the room — and a matching gap is
+            // cut in the corridor wall by the connector below, so the two actually meet.
+            float segment = (size.y - doorHalf * 2f) / 2f;
+            float segOffset = doorHalf + segment / 2f;
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_Door_A", new Vector3(doorX, h / 2f, centre.z - segOffset), new Vector3(t, h, segment)), wallTex, 2f);
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_Door_B", new Vector3(doorX, h / 2f, centre.z + segOffset), new Vector3(t, h, segment)), wallTex, 2f);
+
+            // Short connecting passage from the corridor wall to the room's doorway.
+            float corridorEdge = opensWest ? 4f : -4f;
+            float passLength = Mathf.Abs(doorX - corridorEdge);
+            if (passLength > 0.2f)
+            {
+                float passX = (doorX + corridorEdge) / 2f;
+                Tile(EditorBuildKit.CreateBox($"{name}_Pass_Floor", new Vector3(passX, -0.1f, centre.z), new Vector3(passLength, 0.2f, doorHalf * 2f)), floorTex, 2f);
+                Tile(EditorBuildKit.CreateBox($"{name}_Pass_Ceiling", new Vector3(passX, h, centre.z), new Vector3(passLength, 0.2f, doorHalf * 2f)), floorTex, 3f);
+                Tile(EditorBuildKit.CreateBox($"{name}_Pass_S", new Vector3(passX, h / 2f, centre.z - doorHalf), new Vector3(passLength, h, t)), wallTex, 2f);
+                Tile(EditorBuildKit.CreateBox($"{name}_Pass_N", new Vector3(passX, h / 2f, centre.z + doorHalf), new Vector3(passLength, h, t)), wallTex, 2f);
+            }
+
+            AddFlickeringTube(new Vector3(centre.x, h - 0.25f, centre.z), lightColor, 0.5f);
+            DressSideRoom(name, centre, size);
+        }
+
+        /// <summary>
+        /// Furniture for a side room. Each room draws different pieces from the same pack so three
+        /// procedurally identical boxes read as a storage room, a washroom and a records office.
+        /// Everything hugs a wall, leaving the centre clear to be chased through.
+        /// </summary>
+        private static void DressSideRoom(string name, Vector3 centre, Vector2 size)
+        {
+            var parent = new GameObject($"{name}_Dressing").transform;
+            var scratch = new GameObject($"~{name}_Scratch").transform;
+
+            var furnitureModel = ArtKit.LoadModel("Props/Furniture/furniture_without_scene.fbx");
+            if (furnitureModel != null)
+            {
+                var pack = ArtKit.Spawn(furnitureModel, scratch, "FurniturePack");
+                const string tex = "Props/Furniture/textures/";
+                float hw = size.x / 2f - 0.7f, hd = size.y / 2f - 0.7f;
+
+                switch (name)
+                {
+                    case "Room_Storage":
+                        PlaceFromPack(pack, parent, "Storage_Closet", tex + "closet.png", "M_Closet", 2f,
+                            centre + new Vector3(-hw, 0f, hd), 135f, "Closet");
+                        PlaceFromPack(pack, parent, "Storage_Table", tex + "table.png", "M_Table", 0.75f,
+                            centre + new Vector3(hw * 0.4f, 0f, -hd), 15f, "Table");
+                        PlaceFromPack(pack, parent, "Storage_Chair", tex + "chair.png", "M_Chair", 0.95f,
+                            centre + new Vector3(hw * 0.4f, 0f, -hd + 0.9f), 190f, "Chair_1");
+                        break;
+
+                    case "Room_Washroom":
+                        PlaceFromPack(pack, parent, "Wash_Stand", tex + "bedside_table2.png",
+                            "M_BedsideTable_Wood", 0.6f, centre + new Vector3(hw, 0f, hd), -120f, "Bedside_table");
+                        PlaceFromPack(pack, parent, "Wash_Pot", tex + "pot.png", "M_Pot", 0.45f,
+                            centre + new Vector3(-hw, 0f, -hd), 0f, "Pot");
+                        break;
+
+                    case "Room_Records":
+                        PlaceFromPack(pack, parent, "Rec_Closet", tex + "closet.png", "M_Closet", 2f,
+                            centre + new Vector3(hw, 0f, -hd), -140f, "Closet");
+                        PlaceFromPack(pack, parent, "Rec_Coffee", tex + "coffee_table.png", "M_CoffeeTable", 0.5f,
+                            centre + new Vector3(-hw * 0.5f, 0f, hd * 0.5f), 40f, "Coffe_table");
+                        PlaceFromPack(pack, parent, "Rec_Sofa", tex + "sofa_plating.png", "M_Sofa", 0.85f,
+                            centre + new Vector3(-hw, 0f, -hd), 55f, "Sofa");
+                        break;
+                }
+            }
+
+            // The mirror goes in the washroom, where a mirror belongs — and where a player checking
+            // it is facing away from the door.
+            if (name == "Room_Washroom")
+            {
+                var mirror = PlaceProp(parent, "Props/Mirror/scene.gltf", null, null,
+                    "Mirror", 1.7f, centre + new Vector3(0f, 0f, size.y / 2f - 0.4f), 180f);
+                if (mirror != null) ArtKit.AutoTexture(mirror, "Props/Mirror/textures", alphaClip: false, pointFilter: false);
+            }
+
+            // Batteries for the torch, one per room, on the floor against a wall.
+            EditorBuildKit.CreateToolPickup("battery", "battery",
+                centre + new Vector3(size.x / 2f - 0.5f, 0f, -size.y / 2f + 0.6f),
+                new Color(0.4f, 0.8f, 0.4f),
+                standaloneModel: "Props/Battery/scene.gltf", standaloneTextures: "Props/Battery/textures");
+
+            UnityObject.DestroyImmediate(scratch.gameObject);
+        }
+
+        /// <summary>
+        /// A naked flickering light with no fixture — for flames. Dim and short-range on purpose:
+        /// a candle should pick out the table it stands on, not floodlight the room.
+        /// </summary>
+        private static Light AddFlameLight(Vector3 position, Color color, float intensity, float range)
+        {
+            var go = new GameObject("Flame");
+            go.transform.position = position;
+
+            var light = go.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.range = range;
+            light.intensity = intensity;
+            light.color = color;
+            light.shadows = LightShadows.None;
+
+            var flicker = go.AddComponent<FlickeringLight>();
+            EditorBuildKit.SetFloat(flicker, "baseIntensity", intensity);
+            // A flame guts and recovers constantly; it never blacks out the way a dying tube does.
+            EditorBuildKit.SetFloat(flicker, "flickerAmount", 0.45f);
+            EditorBuildKit.SetFloat(flicker, "flickerSpeed", 9f);
+            EditorBuildKit.SetFloat(flicker, "dropoutIntervalMin", 600f);
+            EditorBuildKit.SetFloat(flicker, "dropoutIntervalMax", 900f);
+            return light;
+        }
+
+        /// <summary>A ceiling tube that buzzes, dips and occasionally dies outright.</summary>
+        private static Light AddFlickeringTube(Vector3 position, Color color, float intensity)
+        {
+            var go = new GameObject("CeilingTube");
+            go.transform.position = position;
+
+            var light = go.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.range = 9f;
+            light.intensity = intensity;
+            light.color = color;
+            light.shadows = LightShadows.None;   // several of these with shadows is not worth the cost
+
+            var flicker = go.AddComponent<FlickeringLight>();
+            EditorBuildKit.SetFloat(flicker, "baseIntensity", intensity);
+
+            // A dim housing so there's something visibly producing the light.
+            var housing = EditorBuildKit.CreateBox("TubeHousing", position + new Vector3(0f, 0.14f, 0f),
+                new Vector3(0.9f, 0.08f, 0.16f));
+            EditorBuildKit.SetMaterial(housing, EditorBuildKit.MakeEmissive(
+                new Color(0.06f, 0.06f, 0.06f), color * 0.35f));
+            UnityObject.DestroyImmediate(housing.GetComponent<Collider>());
+            housing.transform.SetParent(go.transform);
+            return light;
         }
 
         private static void AddDimLight(Vector3 position, float intensity)
@@ -466,7 +726,7 @@ namespace LastWard.EditorTools
         private static void CreateIntercomPuzzleInExit()
         {
             EditorBuildKit.CreateIntercomPuzzle(
-                "Door_FinalExit", new Vector3(0f, 0f, 54f),
+                "Door_FinalExit", new Vector3(-1.5f, 0f, 54f),
                 new Vector3(0f, 1f, 49f),
                 new (string, Vector3)[]
                 {
@@ -723,8 +983,7 @@ namespace LastWard.EditorTools
 
             AddMoonlight(root);
             ScatterTreeline(root, scratch);
-            ScatterDeadTrees(root);
-            DressCorridorShell(root);
+            ScatterForestTrail(root);
             PlaceFarmStructures(root, scratch);
             SwapCarVisual(root);
             DressInteriors(root, scratch);
@@ -811,6 +1070,78 @@ namespace LastWard.EditorTools
         // sparse and pushed off the walking line between the car (z -15) and the door (z 0), so
         // they add depth without turning the approach into an obstacle course. They keep no
         // colliders, same rule as the rest of the decoration.
+        /// <summary>
+        /// Fills the yard with forest, carved by a winding trail from the car up to the doors.
+        ///
+        /// The trail is the point. An open square reads as an empty stage; a path through dense
+        /// trees reads as somewhere you were brought to, and it removes the "which way?" question without
+        /// a marker. Trees are kept clear of the trail by distance test rather than by hand-placing,
+        /// so the corridor of open ground is guaranteed rather than eyeballed.
+        /// </summary>
+        private static void ScatterForestTrail(Transform root)
+        {
+            string[] models =
+            {
+                "Environment/TreePack/tree_rt_1.glb", "Environment/TreePack/tree_rt_2.glb",
+                "Environment/TreePack/tree_rt_3.glb", "Environment/TreePack/tree_rt_4.glb",
+                "Environment/TreePack/dead_tree_rt_1.glb", "Environment/TreePack/dead_tree_rt_2.glb",
+                "Environment/TreePack/small_tree_rt_1.glb",
+            };
+            var loaded = new List<GameObject>();
+            foreach (var m in models)
+            {
+                var g = ArtKit.LoadModel(m);
+                if (g != null) loaded.Add(g);
+            }
+            if (loaded.Count == 0) return;
+
+            var parent = new GameObject("Forest").transform;
+            parent.SetParent(root, false);
+
+            var rng = new System.Random(90210);
+            int placed = 0;
+
+            // Yard spans x[-15,15], z[-35,0]. Trees fill it except along the trail and around the
+            // car and door approach.
+            for (float z = -34f; z <= -1f; z += 2.4f)
+            {
+                for (float x = -14f; x <= 14f; x += 2.4f)
+                {
+                    float jx = x + (float)(rng.NextDouble() - 0.5) * 1.8f;
+                    float jz = z + (float)(rng.NextDouble() - 0.5) * 1.8f;
+                    if (Mathf.Abs(jx - TrailCentreX(jz)) < TrailHalfWidth) continue;   // keep the path clear
+                    if (Mathf.Abs(jx) < 3f && jz > -18f) continue;                     // car + door approach
+                    if ((float)rng.NextDouble() > 0.62) continue;                      // thin it out
+
+                    int pick = rng.Next(loaded.Count);
+                    var tree = ArtKit.Spawn(loaded[pick], parent, "Tree");
+                    // Assigned explicitly. AutoTexture matches meshes to textures by NAME, and this
+                    // pack's atlases are called "DeadTrees"/"LiveTrees" while its meshes are called
+                    // "tree_rt_1" — nothing matches, so every tree came out as an untextured slab,
+                    // which is why the forest read as a row of buildings.
+                    bool dead = models[pick].Contains("dead_tree");
+                    ArtKit.ApplyMaterial(tree, ArtKit.MakeTexturedMaterial(
+                        dead ? "Environment/TreePack/DeadTrees.png" : "Environment/TreePack/LiveTrees.png",
+                        dead ? "M_TreeDead" : "M_TreeLive", alphaClip: true));
+                    // The pack is authored Z-up; without standing it first, FitHeight scales the
+                    // trunk's width instead of its height.
+                    ArtKit.StandUpright(tree);
+                    ArtKit.FitHeight(tree, 4.5f + (float)rng.NextDouble() * 4f);
+                    tree.transform.Rotate(0f, (float)rng.NextDouble() * 360f, 0f, Space.World);
+                    // Bedded slightly into the ground — a trunk sitting exactly on the surface
+                    // reads as floating on uneven terrain.
+                    ArtKit.GroundAt(tree, new Vector3(jx, -0.25f, jz));
+                    placed++;
+                }
+            }
+            Debug.Log($"[Build] Forest: {placed} trees placed, trail kept clear.");
+        }
+
+        // A shallow S-curve from the car (z -15) to the doors (z 0). Sampled by both the tree
+        // scatter and the tool spawn points so they can never contradict each other.
+        private const float TrailHalfWidth = 2.6f;
+        private static float TrailCentreX(float z) => Mathf.Sin((z + 35f) * 0.16f) * 5.5f;
+
         private static void ScatterDeadTrees(Transform root)
         {
             var model = ArtKit.LoadModel("Environment/DeadTree/scene.gltf");
@@ -834,59 +1165,6 @@ namespace LastWard.EditorTools
                 ArtKit.FitHeight(tree, height);
                 tree.transform.Rotate(0f, (float)rng.NextDouble() * 360f, 0f, Space.World);
                 ArtKit.GroundAt(tree, new Vector3(x, 0f, z));
-            }
-        }
-
-        // The Service Corridor's greybox gets a real skin: its wall/ceiling/floor renderers go dark
-        // and scaled corridor sections are laid end to end along the same run.
-        //
-        // Their COLLIDERS are deliberately left in place and the corridor sections carry none, so
-        // navigation and the already-baked NavMesh are untouched. That keeps this safe, but it also
-        // means the visible walls only approximately match what you bump into — this is a first
-        // pass, and properly aligning geometry to collision is its own job.
-        private static void DressCorridorShell(Transform root)
-        {
-            string[] models =
-            {
-                "Environment/Corridor1/scene.gltf",
-                "Environment/Corridor2/scene.gltf",
-                "Environment/Corridor3/scene.gltf",
-            };
-
-            var parent = new GameObject("CorridorShell").transform;
-            parent.SetParent(root, false);
-
-            // Hide the greybox surfaces, keep the pillar and alcove — they're gameplay geometry
-            // (the chase loop and the ambush dead end), not decoration.
-            foreach (var name in new[] { "Corridor_Floor", "Corridor_Ceiling", "Corridor_Wall_E", "Corridor_Wall_W_S", "Corridor_Wall_W_N" })
-            {
-                var box = GameObject.Find(name);
-                if (box != null && box.TryGetComponent<Renderer>(out var renderer)) renderer.enabled = false;
-            }
-
-            const float corridorHeight = 3.2f;   // matches the greybox interior
-            float z = 20f;
-            int index = 0;
-            while (z < 44f && index < 12)
-            {
-                var model = ArtKit.LoadModel(models[index % models.Length]);
-                if (model == null) return;
-
-                var section = ArtKit.Spawn(model, parent, $"CorridorSection_{index}");
-                string texFolder = models[index % models.Length].Replace("/scene.gltf", "/textures");
-                ArtKit.AutoTexture(section, texFolder, alphaClip: false, pointFilter: true);
-                ArtKit.FitHeight(section, corridorHeight);
-
-                if (!ArtKit.TryGetBounds(section, out var bounds)) return;
-                // Run the section along its own longest horizontal axis.
-                float length = Mathf.Max(bounds.size.x, bounds.size.z);
-                if (bounds.size.x > bounds.size.z) section.transform.Rotate(0f, 90f, 0f, Space.World);
-
-                ArtKit.GroundAt(section, new Vector3(0f, 0f, z + length * 0.5f));
-                Debug.Log($"[ArtPass] Corridor section {index} fitted to height {corridorHeight}m, run length {length:0.0}m at z={z:0.0}");
-
-                z += Mathf.Max(2f, length);
-                index++;
             }
         }
 
@@ -1036,10 +1314,21 @@ namespace LastWard.EditorTools
                 // face rather than a guessed height.
                 PlaceOnTop(PlaceHorrorKitItem(parent, scratch, "Radio", 0.3f, "Radio_Tex_1024.png",
                     "M_Radio", "Radio"), table);
-                var candle = PlaceSingleModel(parent, "Props/Candle/Candle.fbx", "Candle", 0.16f,
-                    "Props/Candle/Candle.png", "M_Candle");
+                // The "Candle & Flame" model has no animation in it despite the name (zero curves),
+                // so the flame is a small flickering light rather than a moving mesh — which reads
+                // better anyway, since it lights the table.
+                var candle = PlaceSingleModel(parent, "Props/CandleFlame/CandleFlame.fbx", "Candle", 0.22f,
+                    "Props/CandleFlame/Candle.png", "M_CandleFlame");
                 PlaceOnTop(candle, table);
-                if (candle != null) candle.transform.position += new Vector3(0.32f, 0f, 0.18f);
+                if (candle != null)
+                {
+                    candle.transform.position += new Vector3(0.32f, 0f, 0.18f);
+                    // A bare light, NOT AddFlickeringTube — that helper builds a ceiling fixture
+                    // housing, which is the floating slab that appeared over the candle. A candle
+                    // flame also has to be dim and short-range or it lights the whole room.
+                    AddFlameLight(candle.transform.position + new Vector3(0f, 0.19f, 0f),
+                        new Color(1f, 0.62f, 0.28f), 0.11f, 2.2f);
+                }
             }
 
             // The PS1 closet, in the gap between the wardrobe (z 4.6) and the cupboard (z 7.4) on

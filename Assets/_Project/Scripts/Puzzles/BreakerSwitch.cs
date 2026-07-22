@@ -25,12 +25,18 @@ namespace LastWard.Puzzles
         private static readonly Color WrongBase = new Color(0.3f, 0.05f, 0.05f);
         private static readonly Color WrongEmission = new Color(0.9f, 0.1f, 0.1f);
 
+        [Tooltip("Small status dot. Tinting the switch body instead turns the whole plate green, " +
+            "which reads as a giant indicator rather than a status light.")]
+        [SerializeField] private Renderer indicator;
+
         private Renderer rend;
         private MaterialPropertyBlock mpb;
 
         private void Awake()
         {
-            rend = GetComponent<Renderer>();
+            // The explicit indicator wins. Falling back to a child search picks up whichever
+            // renderer happens to come first — the switch's own body — and floods it with colour.
+            rend = indicator != null ? indicator : GetComponentInChildren<Renderer>();
             mpb = new MaterialPropertyBlock();
         }
 

@@ -22,7 +22,7 @@ namespace LastWard.Puzzles
 
         private void Awake()
         {
-            rend = GetComponent<Renderer>();
+            rend = GetComponentInChildren<Renderer>();
             mpb = new MaterialPropertyBlock();
         }
 

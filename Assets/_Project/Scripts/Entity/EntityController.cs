@@ -61,11 +61,17 @@ namespace LastWard.Entity
         [SerializeField] private float stareDuration = 2.5f;
         [Tooltip("After staring, the odds it rushes rather than melting away.")]
         [SerializeField] private float rushAfterStareChance = 0.45f;
+        [Tooltip("While it stands and watches, closing inside this distance triggers an immediate " +
+            "full-speed rush — trying to slip past something that is staring at you is punished.")]
+        [SerializeField] private float stareTripDistance = 6f;
+        [Tooltip("Meter gained per second while the torch is on, even with no line of sight. Being " +
+            "lit is a continuous cost, not just a detection modifier.")]
+        [SerializeField] private float torchDrawPerSecond = 0.05f;
 
         [Header("Unpredictability")]
         [Tooltip("It won't start a chase for this long after the run begins, so the opening puzzle " +
             "isn't an immediate sprint. It still patrols and can be seen during this window.")]
-        [SerializeField] private float openingGrace = 45f;
+        [SerializeField] private float openingGrace = 20f;
         [Tooltip("A chase runs for a random duration in this range before the Entity may break off " +
             "and vanish. Rolled fresh per chase so the player can never learn the number.")]
         [SerializeField] private float chaseCommitMin = 7f;
@@ -75,8 +81,10 @@ namespace LastWard.Entity
         [Tooltip("How long it stays away, ignoring players entirely, after breaking off.")]
         [SerializeField] private float withdrawDuration = 14f;
         [SerializeField] private float withdrawSpeed = 3.4f;
-        [Tooltip("Odds that finishing a patrol leg turns into a lurk around the nearest player.")]
-        [SerializeField, Range(0f, 1f)] private float stalkChance = 0.35f;
+        [Tooltip("Odds that finishing a patrol leg turns into a lurk around the nearest player. " +
+            "High by design — a fixed patrol route is what made it feel like a guard on rails " +
+            "rather than something hunting.")]
+        [SerializeField, Range(0f, 1f)] private float stalkChance = 0.6f;
         [SerializeField] private float stalkDuration = 18f;
         [SerializeField] private float stalkRadiusMin = 7f;
         [SerializeField] private float stalkRadiusMax = 13f;
@@ -110,6 +118,7 @@ namespace LastWard.Entity
         private float chaseCommit;      // rolled per chase — how long before it may break off
         private int previousWaypoint = -1;
         private bool rushing;           // this chase came out of a stare, so it comes in fast
+        private bool jumpscareRunning;
 
         private readonly List<Transform> players = new List<Transform>();
 
@@ -173,6 +182,11 @@ namespace LastWard.Entity
             {
                 target = found;
                 lastKnownPos = found.position;
+
+                // A filled meter is now fatal. It stops being "it noticed you" and becomes a clock
+                // that noise, light and exposure all wind forward — so the meter is something to be
+                // managed continuously rather than a warning you can ignore once it maxes.
+                if (!jumpscareRunning) StartCoroutine(JumpscareRoutine(found));
             }
             bool engages = CanEngage && (found != null || (seen != null && topDiscovery >= 1f));
 
@@ -222,7 +236,10 @@ namespace LastWard.Entity
                 // IsVisible(...)` short-circuits during the opening grace, which would leave an
                 // out-param unassigned by the time the scoring below reads it.
                 float distance = Vector3.Distance(transform.position, player.position);
-                bool visible = CanEngage && IsVisible(player, pns, distance);
+                // Detection runs from the first second. Gating it on CanEngage meant the meter
+                // stayed pinned at zero for the whole opening window, so the Entity genuinely
+                // could not notice anyone — only the CHASE should wait, not the noticing.
+                bool visible = IsVisible(player, pns, distance);
 
                 if (visible)
                 {
@@ -238,6 +255,11 @@ namespace LastWard.Entity
                 {
                     float decay = discoveryDecayPerSecond + (pns.IsHidden ? hiddenDecayBonus : 0f);
                     current -= decay * Time.deltaTime;
+
+                    // A torch left burning keeps winding the meter even with no line of sight, so
+                    // light is a resource to spend rather than something to leave on permanently.
+                    if (pns.FlashlightOn && !pns.IsHidden)
+                        current += torchDrawPerSecond * (1f + Progress) * Time.deltaTime;
                 }
 
                 current = Mathf.Clamp01(current);
@@ -259,6 +281,49 @@ namespace LastWard.Entity
             return seen != null;
         }
 
+        /// <summary>
+        /// The kill beat. It steps out of wherever it was, directly into the victim's face, holds
+        /// for a breath, then takes them.
+        ///
+        /// Deliberately a hard cut rather than a sprint across the room: the horror is that it was
+        /// already there. It also guarantees the meter actually means something — a slow approach
+        /// could be outrun, which would make the meter filling survivable and therefore ignorable.
+        /// </summary>
+        private System.Collections.IEnumerator JumpscareRoutine(Transform victim)
+        {
+            jumpscareRunning = true;
+
+            if (victim != null)
+            {
+                // Just in front of them, at their eye line, facing them down.
+                Vector3 facing = victim.forward;
+                facing.y = 0f;
+                if (facing.sqrMagnitude < 0.01f) facing = Vector3.forward;
+                Vector3 spot = victim.position + facing.normalized * 1.5f;
+
+                if (NavMesh.SamplePosition(spot, out var hit, 3f, NavMesh.AllAreas))
+                {
+                    agent.Warp(hit.position);
+                    transform.rotation = Quaternion.LookRotation(victim.position - hit.position);
+                }
+                if (agent.isOnNavMesh) agent.isStopped = true;
+                netState.Value = EntityState.Chase;
+                GameEvents.RaiseNoiseEmitted(transform.position, 20f, NoiseSource.PuzzleInteraction);
+            }
+
+            // Long enough to register, short enough that it can't be escaped.
+            yield return new WaitForSeconds(0.45f);
+
+            if (victim != null && victim.TryGetComponent<PlayerNetworkState>(out var pns) && pns.IsAlive)
+            {
+                target = victim;
+                KillTarget();
+            }
+
+            if (agent.isOnNavMesh) agent.isStopped = false;
+            jumpscareRunning = false;
+        }
+
         /// <summary>Any living, unhidden player whose meter has filled — seen or not.</summary>
         private Transform FindFullyDiscoveredPlayer()
         {
@@ -276,14 +341,33 @@ namespace LastWard.Entity
         {
             if (pns.IsHidden) return false;
             if (distance > visionRange) return false;
-            if (Vector3.Angle(transform.forward, player.position - transform.position) > visionHalfAngle) return false;
 
-            Vector3 eye = transform.position + Vector3.up * eyeHeight;
-            Vector3 head = player.position + Vector3.up * 1f;
-            if (Physics.Linecast(eye, head, out var hit, ~0, QueryTriggerInteraction.Ignore)
-                && hit.transform != player && !hit.transform.IsChildOf(player))
+            // Compared FLAT. The old check used the full 3D angle, so a crouching player standing
+            // right in front of the Entity sat at a steep downward angle that blew past the 55°
+            // cone — crouching in the open made you invisible, and anyone close was often missed
+            // entirely. Height is handled by the line-of-sight test below, not the cone.
+            Vector3 toPlayer = player.position - transform.position;
+            toPlayer.y = 0f;
+            Vector3 facing = transform.forward;
+            facing.y = 0f;
+            if (toPlayer.sqrMagnitude > 0.001f && facing.sqrMagnitude > 0.001f &&
+                Vector3.Angle(facing, toPlayer) > visionHalfAngle)
                 return false;
-            return true;
+
+            // Aimed at the chest and re-aimed lower if that's blocked: crouching drops the player's
+            // real height to ~1m, so a fixed 1m offset can sit inside the floor or a prop and read
+            // as "hidden" while they're in plain view.
+            Vector3 eye = transform.position + Vector3.up * eyeHeight;
+            if (HasLineOfSight(eye, player, 1.1f)) return true;
+            if (HasLineOfSight(eye, player, 0.55f)) return true;
+            return HasLineOfSight(eye, player, 0.2f);
+        }
+
+        private bool HasLineOfSight(Vector3 eye, Transform player, float heightOffset)
+        {
+            Vector3 point = player.position + Vector3.up * heightOffset;
+            if (!Physics.Linecast(eye, point, out var hit, ~0, QueryTriggerInteraction.Ignore)) return true;
+            return hit.transform == player || hit.transform.IsChildOf(player);
         }
 
         /// <summary>
@@ -412,7 +496,20 @@ namespace LastWard.Entity
                     transform.rotation = Quaternion.Slerp(transform.rotation,
                         Quaternion.LookRotation(flat), Time.deltaTime * 6f);
             }
-            if (stateTimer < stareDuration) return;
+            // While it stands there it is a tripwire: break the distance it is guarding and it
+            // comes at once, at full speed, instead of waiting out its timer.
+            if (target != null)
+            {
+                float gap = Vector3.Distance(transform.position, target.position);
+                if (gap < stareTripDistance)
+                {
+                    rushing = true;
+                    EnterState(EntityState.Chase);
+                    return;
+                }
+            }
+
+            if (stateTimer < stareDuration * Random.Range(1f, 2.5f)) return;
 
             if (target != null && Random.value < Mathf.Lerp(rushAfterStareChance, 0.9f, Progress))
             {
@@ -580,6 +677,29 @@ namespace LastWard.Entity
         private void OnNoiseHeard(Vector3 position, float radius, NoiseSource source)
         {
             if (Vector3.Distance(transform.position, position) > radius + hearingRadius) return;
+
+            // Noise raises the meter of whoever made it, even through walls and with no line of
+            // sight. Sprinting, slamming doors and working puzzles are choices with a cost now,
+            // rather than free actions the Entity only reacts to by walking somewhere.
+            float bump = source switch
+            {
+                NoiseSource.Sprint => 0.22f,
+                NoiseSource.Door => 0.18f,
+                NoiseSource.PuzzleInteraction => 0.14f,
+                _ => 0.06f,
+            };
+            bump *= 1f + Progress;
+
+            foreach (var player in players)
+            {
+                if (player == null) continue;
+                if (Vector3.Distance(player.position, position) > 2.5f) continue;
+                if (!player.TryGetComponent<PlayerNetworkState>(out var pns)) continue;
+                if (!pns.IsAlive) continue;
+                // Hiding muffles you, it doesn't silence you.
+                pns.ServerSetDiscovery(pns.Discovery + (pns.IsHidden ? bump * 0.25f : bump));
+            }
+
             if (state == EntityState.Chase) return; // already engaged
             stimulusPos = position;
             hasStimulus = true;

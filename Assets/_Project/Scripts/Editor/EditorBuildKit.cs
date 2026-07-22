@@ -689,17 +689,37 @@ namespace LastWard.EditorTools
 
         // --- doors / entity / navmesh ---
 
-        public static NetworkedDoor CreateNetworkedDoor(string name, Vector3 position)
+        /// <summary>
+        /// A hinged door. <paramref name="position"/> is the HINGE EDGE of the doorway, not its
+        /// centre — the panel swings out from there and must span the full opening.
+        ///
+        /// The panel used to be a fixed 1m × 2.1m regardless of the gap it filled. Against the 2m ×
+        /// 3m doorway into the Ward that left half the opening and the top third completely clear,
+        /// so the fuse puzzle could be walked straight around. Size is now passed in and must match
+        /// the gap left in the wall.
+        /// </summary>
+        public static NetworkedDoor CreateNetworkedDoor(string name, Vector3 position, float width = 2f, float height = 3f)
         {
             var hinge = new GameObject(name);
             hinge.transform.position = position;
             hinge.AddComponent<NetworkObject>();
+
             var panel = GameObject.CreatePrimitive(PrimitiveType.Cube);
             panel.name = "Panel";
             panel.transform.SetParent(hinge.transform);
-            panel.transform.localScale = new Vector3(1f, 2.1f, 0.1f);
-            panel.transform.localPosition = new Vector3(0.5f, 1.05f, 0f);
-            SetMaterial(panel, MakeMaterial(new Color(0.45f, 0.12f, 0.1f)));
+            panel.transform.localScale = new Vector3(width, height, 0.12f);
+            panel.transform.localPosition = new Vector3(width / 2f, height / 2f, 0f);
+            SetMaterial(panel, MakeMaterial(new Color(0.32f, 0.1f, 0.08f)));
+
+            // Carves the NavMesh only while shut. BakeNavMesh bakes with door colliders disabled so
+            // the floor under a doorway is walkable; this obstacle is what actually blocks the
+            // Entity, and it moves aside with the panel when the door opens. Without it the Entity
+            // could never path through a doorway at all, because the bake saw a solid wall.
+            var obstacle = panel.AddComponent<NavMeshObstacle>();
+            obstacle.shape = NavMeshObstacleShape.Box;
+            obstacle.size = Vector3.one;      // local space; the panel's own scale gives it size
+            obstacle.carving = true;
+
             var door = hinge.AddComponent<NetworkedDoor>();
             SetRef(door, "hinge", hinge.transform);
             // Gated by a puzzle, not free to open — that's each puzzle's whole point.
@@ -709,11 +729,31 @@ namespace LastWard.EditorTools
 
         public static void BakeNavMesh()
         {
+            // Doors are taken out of the bake so the floor beneath every doorway is walkable. Baked
+            // with them in place, a closed door is just wall — no NavMesh is generated through the
+            // opening, and unlocking it later changes nothing, because a NavMesh is static. That is
+            // why the Entity could never follow players into the Ward however open the door was.
+            // Blocking while shut is handled by the NavMeshObstacle on each panel instead.
+            var suppressed = new System.Collections.Generic.List<Collider>();
+            foreach (var door in UnityObject.FindObjectsByType<NetworkedDoor>(FindObjectsInactive.Include))
+            {
+                foreach (var collider in door.GetComponentsInChildren<Collider>(true))
+                {
+                    if (!collider.enabled) continue;
+                    collider.enabled = false;
+                    suppressed.Add(collider);
+                }
+            }
+
             var navGO = new GameObject("Navigation");
             var surface = navGO.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.All;
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
             surface.BuildNavMesh();
+
+            foreach (var collider in suppressed) collider.enabled = true;
+            Debug.Log($"[Build] NavMesh baked with {suppressed.Count} door colliders suppressed — " +
+                      "doorways are walkable, doors carve dynamically.");
         }
 
         public static void CreateEntity(Transform[] waypoints, Vector3 spawnPosition)
@@ -774,22 +814,117 @@ namespace LastWard.EditorTools
             var puzzle = puzzleGO.AddComponent<FusePowerPuzzle>();
             SetRef(puzzle, "gatedDoor", door);
 
-            CreateBox("BreakerBox", breakerBoxPosition + new Vector3(0f, 0f, -0.15f), new Vector3(1.2f, 1f, 0.15f));
+            // Built from primitives, NOT the imported fuse box model. That asset's slots sat where
+            // its geometry put them, and snapping sockets to them dropped one inside the wall —
+            // unsolvable. Procedural geometry means every socket position is chosen, not inferred,
+            // which is the same reason the corridor and side rooms are built this way.
+            //
+            // Detail comes from layering simple parts (backing, recessed face, frame, conduit,
+            // screws) rather than from a mesh — enough to read as equipment bolted to a wall.
+            var boxRoot = new GameObject("BreakerBox");
+            boxRoot.transform.position = breakerBoxPosition;
+
+            var metal = MakeMaterial(new Color(0.34f, 0.34f, 0.33f));
+            var darkMetal = MakeMaterial(new Color(0.13f, 0.13f, 0.14f));
+            var trimMetal = MakeMaterial(new Color(0.46f, 0.45f, 0.42f));
+
+            const float bw = 0.9f, bh = 0.7f, bd = 0.16f;
+
+            // Backing plate flush to the wall, then a recessed dark face the switches sit proud of.
+            var backing = CreateBox("Box_Backing", breakerBoxPosition + new Vector3(0f, 0f, -bd / 2f), new Vector3(bw, bh, bd));
+            SetMaterial(backing, metal);
+            backing.transform.SetParent(boxRoot.transform, true);
+
+            var face = CreateBox("Box_Face", breakerBoxPosition + new Vector3(0f, 0f, -bd - 0.005f), new Vector3(bw - 0.12f, bh - 0.12f, 0.02f));
+            SetMaterial(face, darkMetal);
+            UnityObject.DestroyImmediate(face.GetComponent<Collider>());
+            face.transform.SetParent(boxRoot.transform, true);
+
+            // Frame edges around the face.
+            foreach (var (off, size) in new[]
+            {
+                (new Vector3(0f, bh / 2f - 0.04f, -bd - 0.01f), new Vector3(bw, 0.08f, 0.05f)),
+                (new Vector3(0f, -bh / 2f + 0.04f, -bd - 0.01f), new Vector3(bw, 0.08f, 0.05f)),
+                (new Vector3(-bw / 2f + 0.04f, 0f, -bd - 0.01f), new Vector3(0.08f, bh, 0.05f)),
+                (new Vector3(bw / 2f - 0.04f, 0f, -bd - 0.01f), new Vector3(0.08f, bh, 0.05f)),
+            })
+            {
+                var edge = CreateBox("Box_Frame", breakerBoxPosition + off, size);
+                SetMaterial(edge, trimMetal);
+                UnityObject.DestroyImmediate(edge.GetComponent<Collider>());
+                edge.transform.SetParent(boxRoot.transform, true);
+            }
+
+            // Conduit running up out of the box into the wall — sells it as wired in.
+            var conduit = CreateBox("Box_Conduit", breakerBoxPosition + new Vector3(bw / 2f - 0.14f, bh / 2f + 0.34f, -0.05f), new Vector3(0.07f, 0.7f, 0.07f));
+            SetMaterial(conduit, trimMetal);
+            UnityObject.DestroyImmediate(conduit.GetComponent<Collider>());
+            conduit.transform.SetParent(boxRoot.transform, true);
+
+            foreach (var corner in new[] { new Vector2(-1f, 1f), new Vector2(1f, 1f), new Vector2(-1f, -1f), new Vector2(1f, -1f) })
+            {
+                var screw = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                screw.name = "Box_Screw";
+                screw.transform.position = breakerBoxPosition + new Vector3(corner.x * (bw / 2f - 0.05f), corner.y * (bh / 2f - 0.05f), -bd - 0.02f);
+                screw.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+                screw.transform.localScale = new Vector3(0.035f, 0.012f, 0.035f);
+                UnityObject.DestroyImmediate(screw.GetComponent<Collider>());
+                SetMaterial(screw, trimMetal);
+                screw.transform.SetParent(boxRoot.transform, true);
+            }
+
             string[] labels = { "Breaker 1", "Breaker 2", "Breaker 3" };
-            float[] xOffsets = { -0.4f, 0f, 0.4f };
+            float[] xOffsets = { -0.26f, 0f, 0.26f };
             for (int i = 0; i < 3; i++)
             {
-                var sw = CreateBox($"Switch_{i}", breakerBoxPosition + new Vector3(xOffsets[i], 0.1f, -0.25f), new Vector3(0.12f, 0.25f, 0.06f));
+                // Switches sit in a row along the TOP of the box; the fuse sockets go along the
+                // bottom (see below). They previously shared the same height and overlapping x
+                // offsets, so the two interactables grew through each other.
+                // Top row, above the fuse sockets.
+                Vector3 swPos = breakerBoxPosition + new Vector3(xOffsets[i], 0.16f, -0.2f);
+                var sw = CreateBox($"Switch_{i}", swPos, new Vector3(0.12f, 0.12f, 0.07f));
                 SetMaterial(sw, MakeEmissive(new Color(0.3f, 0.25f, 0.05f), new Color(0.6f, 0.5f, 0.1f)));
+
+                // Real switch mesh as a child; the parent box keeps the collider the interaction
+                // ray needs. BreakerSwitch tints whichever renderer it finds in its children, so
+                // the green/red correct-wrong feedback now colours the actual switch.
+                var switchModel = ArtKit.LoadModel("Props/FuseSwitch/scene.gltf");
+                if (switchModel != null)
+                {
+                    var visual = ArtKit.Spawn(switchModel, sw.transform, "Visual");
+                    ArtKit.AutoTexture(visual, "Props/FuseSwitch/textures", alphaClip: false, pointFilter: false);
+                    ArtKit.FitHeight(visual, 0.22f);
+                    visual.transform.localPosition = Vector3.zero;
+                    // The parent box is a thin slab; undo its non-uniform scale so the mesh isn't squashed.
+                    ArtKit.NeutralizeParentScale(visual);
+                    ArtKit.FitHeight(visual, 0.16f);
+                    if (sw.TryGetComponent<Renderer>(out var slab)) slab.enabled = false;
+                }
+
+                // A small status dot beside the switch: steady green once correctly progressed,
+                // flashing red on a wrong press. Tinting the switch body instead turned the whole
+                // plate green, which read as a giant indicator rather than a status light.
+                var dot = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                dot.name = "Indicator";
+                dot.transform.SetParent(sw.transform, false);
+                dot.transform.localScale = new Vector3(0.22f, 0.22f, 0.42f);
+                dot.transform.localPosition = new Vector3(0f, -0.85f, -0.7f);
+                UnityObject.DestroyImmediate(dot.GetComponent<Collider>());
+                SetMaterial(dot, MakeEmissive(new Color(0.25f, 0.2f, 0.05f), new Color(0.5f, 0.4f, 0.08f)));
                 var breaker = sw.AddComponent<BreakerSwitch>();
                 SetRef(breaker, "puzzle", puzzle);
+                if (dot != null && dot.TryGetComponent<Renderer>(out var dotRend))
+                    SetRef(breaker, "indicator", dotRend);
                 SetInt(breaker, "breakerIndex", i);
                 SetString(breaker, "label", labels[i]);
             }
 
             for (int i = 0; i < 2; i++)
             {
-                var socket = CreateBox($"FuseSocket_{i}", breakerBoxPosition + new Vector3(i == 0 ? -0.25f : 0.25f, -0.25f, -0.25f), new Vector3(0.15f, 0.15f, 0.1f));
+                // Bottom row, on the face. Chosen positions on geometry we built, so a socket can
+                // never end up inside the wall.
+                Vector3 socketPos = breakerBoxPosition + new Vector3(i == 0 ? -0.2f : 0.2f, -0.18f, -0.2f);
+                var socket = CreateBox($"FuseSocket_{i}", socketPos, new Vector3(0.13f, 0.13f, 0.08f));
                 SetMaterial(socket, MakeMaterial(new Color(0.15f, 0.15f, 0.15f)));
                 var fs = socket.AddComponent<FuseSocket>();
                 SetRef(fs, "puzzle", puzzle);
@@ -826,8 +961,43 @@ namespace LastWard.EditorTools
 
         public static GameObject CreateFusePickup(Vector3 position)
         {
-            var fuse = CreateBox("Pickup_Fuse", position, new Vector3(0.12f, 0.12f, 0.3f));
-            SetMaterial(fuse, MakeEmissive(new Color(0.5f, 0.3f, 0.05f), new Color(0.9f, 0.55f, 0.1f)));
+            var fuse = new GameObject("Pickup_Fuse");
+            fuse.transform.position = position;
+
+            // The real fuse comes out of the fuse box model, which ships loose fuses ("Fuse_*")
+            // alongside the slots they sit in — so the thing you carry is the thing that goes in
+            // the socket, instead of an orange block that matches nothing.
+            bool built = false;
+            var boxModel = ArtKit.LoadModel("Props/FuseBox/scene.gltf");
+            if (boxModel != null)
+            {
+                var scratch = ArtKit.Spawn(boxModel, null, "~FuseSource");
+                var item = ArtKit.ExtractProp(scratch, "Model", fuse.transform, "Fuse_");
+                if (item != null)
+                {
+                    ArtKit.AutoTexture(item, "Props/FuseBox/textures", alphaClip: false, pointFilter: false);
+                    ArtKit.FitLongest(item, 0.16f);
+                    ArtKit.GroundAt(item, position);
+                    built = true;
+                }
+                UnityObject.DestroyImmediate(scratch);
+            }
+
+            if (!built)
+            {
+                var block = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                block.name = "Model";
+                block.transform.SetParent(fuse.transform, false);
+                block.transform.localScale = new Vector3(0.12f, 0.12f, 0.3f);
+                UnityObject.DestroyImmediate(block.GetComponent<Collider>());
+                SetMaterial(block, MakeEmissive(new Color(0.5f, 0.3f, 0.05f), new Color(0.9f, 0.55f, 0.1f)));
+            }
+
+            // Generous target — a fuse lying on the floor is small and easy to miss with a crosshair.
+            var trigger = fuse.AddComponent<BoxCollider>();
+            trigger.size = new Vector3(0.3f, 0.28f, 0.3f);
+            trigger.center = new Vector3(0f, 0.12f, 0f);
+
             fuse.AddComponent<NetworkObject>();
             var pickup = fuse.AddComponent<NetworkedPickup>();
             SetString(pickup, "itemId", "fuse");
@@ -843,7 +1013,9 @@ namespace LastWard.EditorTools
             (string label, Vector3 pos)[] stations,
             Vector3 orderNotePosition)
         {
-            var door = CreateNetworkedDoor(doorName, doorPosition);
+            // 3m wide: the Exit Route's north wall leaves x[-1.5,1.5] open, and a default 2m panel
+            // would leave a metre of it walkable straight past the puzzle.
+            var door = CreateNetworkedDoor(doorName, doorPosition, width: 3f, height: 3f);
 
             var puzzleGO = new GameObject("IntercomPuzzle");
             puzzleGO.transform.position = puzzleMarkerPosition;
@@ -990,30 +1162,38 @@ namespace LastWard.EditorTools
             root.transform.position = position;
             root.transform.rotation = Quaternion.Euler(0f, (name.GetHashCode() % 90) - 45f, 0f);
 
-            var letters = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/_Project/Art/Props/Letters/scene.gltf");
+            // The pack is a spread of several sheets. SplitIntoProps separates them so ONE can be
+            // kept as a single page.
+            //
+            // Previously the extras were merely disabled — but a disabled Renderer still reports
+            // bounds, so the fit-to-size measured the whole spread and scaled the one visible sheet
+            // down to almost nothing. Extracting a single sheet and discarding the rest is the only
+            // version of this that measures correctly.
             bool built = false;
+            var letters = ArtKit.LoadModel("Props/Letters/scene.gltf");
             if (letters != null)
             {
-                var instance = (GameObject)UnityObject.Instantiate(letters, root.transform);
-                instance.name = "Model";
-                foreach (var collider in instance.GetComponentsInChildren<Collider>(true))
-                    UnityObject.DestroyImmediate(collider);
-                // The pack holds several sheets; keep one so each note is a single page.
-                var renderers = instance.GetComponentsInChildren<Renderer>(true);
-                for (int i = 1; i < renderers.Length; i++)
-                    if (renderers[i] != null) UnityObject.DestroyImmediate(renderers[i].gameObject);
-
-                if (instance.GetComponentInChildren<Renderer>(true) != null)
+                var scratch = ArtKit.Spawn(letters, null, "~LetterSource");
+                var sheets = ArtKit.SplitIntoProps(scratch, null, 0.05f);
+                if (sheets.Count > 0)
                 {
-                    ArtKit.AutoTexture(instance, "Props/Letters/textures");
-                    // NOT NormalizeViewModel — that turns a model's longest axis to face forward,
-                    // which stands a sheet of paper on its edge like a wedge. A note just needs
-                    // scaling and laying flat where it was put.
-                    ArtKit.FitLongest(instance, 0.3f);
-                    ArtKit.GroundAt(instance, position);
+                    // Vary which sheet each note uses so the notes aren't visibly identical.
+                    var chosen = sheets[Mathf.Abs(name.GetHashCode()) % sheets.Count];
+                    chosen.transform.SetParent(root.transform, true);
+                    chosen.name = "Model";
+
+                    for (int i = 0; i < sheets.Count; i++)
+                        if (sheets[i] != null && sheets[i] != chosen) UnityObject.DestroyImmediate(sheets[i]);
+
+                    ArtKit.AutoTexture(chosen, "Props/Letters/textures");
+                    // Laid flat first: the sheets are authored as vertical planes (thinnest on Z),
+                    // so without this every note stands on its edge like a headstone.
+                    ArtKit.LayFlat(chosen);
+                    ArtKit.FitLongest(chosen, 0.3f);
+                    ArtKit.GroundAt(chosen, position);
                     built = true;
                 }
-                else UnityObject.DestroyImmediate(instance);
+                if (scratch != null) UnityObject.DestroyImmediate(scratch);
             }
 
             if (!built)
@@ -1352,6 +1532,15 @@ namespace LastWard.EditorTools
             var prop = so.FindProperty(fieldName);
             if (prop == null) { Debug.LogError($"Field '{fieldName}' not found on {target.GetType().Name}."); return; }
             prop.stringValue = value;
+            so.ApplyModifiedProperties();
+        }
+
+        public static void SetFloat(UnityObject target, string fieldName, float value)
+        {
+            var so = new SerializedObject(target);
+            var prop = so.FindProperty(fieldName);
+            if (prop == null) { Debug.LogError($"Field '{fieldName}' not found on {target.GetType().Name}."); return; }
+            prop.floatValue = value;
             so.ApplyModifiedProperties();
         }
 
