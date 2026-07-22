@@ -7,7 +7,9 @@ namespace LastWard.Player
     {
         public static PlayerInventory Local { get; private set; }
 
-        private const int SlotCount = 2;
+        // Was 2, which silently blocked pickups: carrying the key and crowbar (both needed to
+        // open containers) filled the inventory, so fuses could not be taken at all.
+        private const int SlotCount = 6;
         private readonly string[] slots = new string[SlotCount];
 
         [SerializeField] private PlayerInputReader input;

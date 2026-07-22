@@ -163,13 +163,24 @@ namespace LastWard.Entity
                 target = seen;
                 lastKnownPos = seen.position;
             }
-            bool engages = seen != null && topDiscovery >= 1f && CanEngage;
+
+            // A full meter means it has FOUND you — it commits even if you've since stepped out of
+            // its vision cone. Previously engagement also required current line of sight, so it
+            // would walk straight past a player whose meter was already full, which read as the
+            // Entity simply not caring.
+            var found = FindFullyDiscoveredPlayer();
+            if (found != null && CanEngage)
+            {
+                target = found;
+                lastKnownPos = found.position;
+            }
+            bool engages = CanEngage && (found != null || (seen != null && topDiscovery >= 1f));
 
             // The stop-and-watch beat: it has half-noticed someone and holds their gaze before
             // deciding whether to commit. Only from the unhurried states — never mid-chase.
             if (!engages && sees && CanEngage && topDiscovery >= stareThreshold &&
                 (state == EntityState.Patrol || state == EntityState.Stalk) &&
-                Random.value < stareChance * Time.deltaTime)
+                Random.value < Mathf.Lerp(stareChance, stareChance * 3f, Progress) * Time.deltaTime)
             {
                 target = seen;
                 EnterState(EntityState.Stare);
@@ -215,10 +226,12 @@ namespace LastWard.Entity
 
                 if (visible)
                 {
-                    // Closer reads faster, and a lit torch in a dark ward is a beacon.
+                    // Closer reads faster, and a lit torch in a dark ward is a beacon. Deeper into
+                    // the run it notices you roughly twice as fast.
                     float proximity = Mathf.Lerp(2f, 0.65f, Mathf.Clamp01(distance / visionRange));
                     float rate = proximity / Mathf.Max(0.1f, timeToDiscover);
                     if (pns.FlashlightOn) rate *= flashlightDetectionMultiplier;
+                    rate *= 1f + Progress;
                     current += rate * Time.deltaTime;
                 }
                 else
@@ -246,6 +259,19 @@ namespace LastWard.Entity
             return seen != null;
         }
 
+        /// <summary>Any living, unhidden player whose meter has filled — seen or not.</summary>
+        private Transform FindFullyDiscoveredPlayer()
+        {
+            foreach (var player in players)
+            {
+                if (player == null) continue;
+                if (!player.TryGetComponent<PlayerNetworkState>(out var pns)) continue;
+                if (!pns.IsAlive || pns.IsHidden) continue;
+                if (pns.Discovery >= 0.999f) return player;
+            }
+            return null;
+        }
+
         private bool IsVisible(Transform player, PlayerNetworkState pns, float distance)
         {
             if (pns.IsHidden) return false;
@@ -260,7 +286,36 @@ namespace LastWard.Entity
             return true;
         }
 
-        private bool CanEngage => runTime >= openingGrace;
+        /// <summary>
+        /// 0 at the car, 1 at the exit door. Everything that makes the Entity dangerous scales off
+        /// this, so pressure climbs as the party gets deeper and solves more — rather than the whole
+        /// run being played at one difficulty. Team knowledge stacks on top, so the group that reads
+        /// everything is hunted harder than the group that guesses.
+        /// </summary>
+        private float Progress
+        {
+            get
+            {
+                float stage = 0f;
+                if (ObjectiveTracker.Instance != null)
+                {
+                    switch (ObjectiveTracker.Instance.Stage)
+                    {
+                        case ObjectiveStage.Exterior: stage = 0f; break;
+                        case ObjectiveStage.Lobby: stage = 0.25f; break;
+                        case ObjectiveStage.OrphanWard: stage = 0.5f; break;
+                        case ObjectiveStage.ServiceCorridor: stage = 0.75f; break;
+                        default: stage = 1f; break;
+                    }
+                }
+                int tier = KnowledgeService.Instance != null ? KnowledgeService.Instance.GetAggressionTier() : 0;
+                return Mathf.Clamp01(stage + tier * 0.08f);
+            }
+        }
+
+        // The opening lull shrinks to nothing by the Ward — it exists to keep the first puzzle calm,
+        // not to protect the whole run.
+        private bool CanEngage => runTime >= openingGrace * (1f - Progress);
 
         // --- states ---
 
@@ -273,7 +328,9 @@ namespace LastWard.Entity
 
             // Sometimes a patrol leg turns into circling whoever is closest instead of carrying on
             // to the next point — the difference between a guard on a route and something hunting.
-            if (players.Count > 0 && CanEngage && Random.value < stalkChance)
+            // Circling instead of patrolling becomes the norm later on — by the Exit it does it
+            // most of the time, which is what turns "roaming" into "hunting".
+            if (players.Count > 0 && CanEngage && Random.value < Mathf.Lerp(stalkChance, 0.85f, Progress))
             {
                 EnterState(EntityState.Stalk);
                 return;
@@ -316,7 +373,7 @@ namespace LastWard.Entity
             // on top of the player — being nearly caught should always stay committed, otherwise
             // escapes stop feeling earned. The commit time is re-rolled per chase, so outrunning it
             // once teaches the player nothing about the next time.
-            if (chaseElapsed >= chaseCommit && distance > commitWithinDistance)
+            if (chaseElapsed >= chaseCommit * (1f + Progress * 1.5f) && distance > commitWithinDistance)
             {
                 EnterState(EntityState.Withdraw);
                 return;
@@ -357,7 +414,7 @@ namespace LastWard.Entity
             }
             if (stateTimer < stareDuration) return;
 
-            if (target != null && Random.value < rushAfterStareChance)
+            if (target != null && Random.value < Mathf.Lerp(rushAfterStareChance, 0.9f, Progress))
             {
                 rushing = true;
                 EnterState(EntityState.Chase);
@@ -411,7 +468,9 @@ namespace LastWard.Entity
         // the entire point of the state.
         private void TickWithdraw()
         {
-            if (stateTimer >= withdrawDuration) { EnterState(EntityState.Patrol); return; }
+            // Vanishes for a much shorter time late on — near the exit it is barely gone before
+            // it is back.
+            if (stateTimer >= withdrawDuration * (1f - Progress * 0.6f)) { EnterState(EntityState.Patrol); return; }
             if (HasArrived())
             {
                 waypointIndex = PickNextWaypoint();

@@ -69,7 +69,7 @@ namespace LastWard.EditorTools
                 "Door_ToWard", new Vector3(0f, 0f, 10f),
                 new Vector3(1.5f, 1f, 8f),
                 new Vector3(-3f, 0.3f, 3f), new Vector3(3f, 0.3f, 3f),
-                new Vector3(-3f, 1.15f, 8f),
+                new Vector3(-3.2f, 0f, 7.6f),   // on the floor by the breaker box
                 out var fusePickups);
             ShuffleFuseSpawns(fusePickups);
 
@@ -152,7 +152,7 @@ namespace LastWard.EditorTools
             carLight.color = new Color(1f, 0.85f, 0.6f);
             carLight.transform.position = new Vector3(0f, 1f, -15f);
 
-            EditorBuildKit.CreateNoteProp("Note_Tutorial", new Vector3(1.5f, 1f, -15f),
+            EditorBuildKit.CreateNoteProp("Note_Tutorial", new Vector3(1.45f, 0.62f, -14.6f),
                 "Assets/_Project/Data/TutorialNoteClue.asset", "tutorial_reading", "A Torn Page",
                 "Someone wrote this and never came back for it. Reading it feels like taking something that isn't yours.\n\n" +
                 "(Every note you read here matters more than it looks like it should.)", 1f);
@@ -329,15 +329,22 @@ namespace LastWard.EditorTools
             // the very puzzle it's needed to solve — an unwinnable run. Everything required to open
             // the Lobby's stashes is reachable before the player ever enters the building.
             // The kit has a real key mesh; it has no crowbar, so that one stays a shaped block.
-            EditorBuildKit.CreateToolPickup("key", "rusted key", new Vector3(1.4f, 0.9f, -14.2f),
+            // Y is the surface the item rests ON, not its centre — the key sits on the car's bonnet,
+            // the crowbar on the ground.
+            EditorBuildKit.CreateToolPickup("key", "rusted key", new Vector3(1.35f, 0.86f, -14.3f),
                 new Color(0.85f, 0.72f, 0.25f), meshNamePrefix: "Key", texFile: "LockAndKey_Tex_1024.png");
-            EditorBuildKit.CreateToolPickup("crowbar", "crowbar", new Vector3(-8.4f, 0.35f, -21f),
-                new Color(0.75f, 0.3f, 0.2f));
+            EditorBuildKit.CreateToolPickup("crowbar", "crowbar", new Vector3(-8.4f, 0f, -21f),
+                new Color(0.75f, 0.3f, 0.2f),
+                standaloneModel: "Props/Crowbar/scene.gltf", standaloneTextures: "Props/Crowbar/textures");
 
-            // Two pipes for the whole level, deep enough in that you've already met the Entity
-            // before you find one. One swing each — see PlayerMeleeDefense.
+            // Weapons for the whole level: two pipes and a knife, all deep enough in that you've met
+            // the Entity before you find one, and all worth exactly one swing — see
+            // PlayerMeleeDefense. Kept scarce on purpose; the moment they're plentiful the Entity
+            // becomes something you manage rather than something you avoid.
             CreatePipePickup(new Vector3(-3.7f, 0.15f, 22.8f));
             CreatePipePickup(new Vector3(3.3f, 0.15f, 42.2f));
+            EditorBuildKit.CreateToolPickup("knife", "kitchen knife", new Vector3(2.2f, 0.12f, 14.4f),
+                new Color(0.8f, 0.8f, 0.85f), meshNamePrefix: "Knife_", texFile: "Knife_Tex_1024.png");
 
             return points.ToArray();
         }
@@ -515,23 +522,23 @@ namespace LastWard.EditorTools
             var keypad = keypadGO.AddComponent<LastWard.Puzzles.KeypadInteractable>();
             EditorBuildKit.SetRef(keypad, "puzzle", puzzle);
 
-            EditorBuildKit.CreateNoteProp("Note_CriterionMemo", new Vector3(-4f, 1f, 11f),
+            EditorBuildKit.CreateNoteProp("Note_CriterionMemo", new Vector3(-4.2f, 0f, 11f),
                 "Assets/_Project/Data/CriterionMemoClue.asset", "p2_criterion_memo", "Admission Policy Memo",
                 "Fire took the east wing in March 1974. Anyone processed after that point wasn't real intake -- paperwork only, backdated to cover the gap.\n\nCount only the ones admitted before. List their rooms, oldest to newest.",
                 2f);
 
-            var file1 = EditorBuildKit.CreateNoteProp("Note_File1", new Vector3(4f, 1f, 11f),
+            var file1 = EditorBuildKit.CreateNoteProp("Note_File1", new Vector3(4.2f, 0f, 11f),
                 "Assets/_Project/Data/PatientFile1Clue.asset", "p2_file_room4", "Patient Intake -- Room 4",
                 "Admitted January 12, 1974. Quiet. Doesn't speak much.", 2f);
-            var file2 = EditorBuildKit.CreateNoteProp("Note_File2", new Vector3(-4f, 1f, 15f),
+            var file2 = EditorBuildKit.CreateNoteProp("Note_File2", new Vector3(-4.2f, 0f, 15f),
                 "Assets/_Project/Data/PatientFile2Clue.asset", "p2_file_room8", "Patient Intake -- Room 8",
                 "Admitted February 3, 1974. Transferred from the county home.", 2f);
-            var file3 = EditorBuildKit.CreateNoteProp("Note_File3", new Vector3(4f, 1f, 15f),
+            var file3 = EditorBuildKit.CreateNoteProp("Note_File3", new Vector3(4.2f, 0f, 15f),
                 "Assets/_Project/Data/PatientFile3Clue.asset", "p2_file_room2", "Patient Intake -- Room 2",
                 "Admitted February 20, 1974. No family listed.", 2f);
             // The decoy: dated after the March 1974 fire per the criterion memo, so it should be
             // excluded from the code -- the actual "figure it out" moment of the puzzle.
-            var file4 = EditorBuildKit.CreateNoteProp("Note_File4", new Vector3(-4f, 1f, 19f),
+            var file4 = EditorBuildKit.CreateNoteProp("Note_File4", new Vector3(-4.2f, 0f, 19f),
                 "Assets/_Project/Data/PatientFile4Clue.asset", "p2_file_room9", "Patient Intake -- Room 9",
                 "Admitted April 5, 1974. [Note: ward reopened under new administration.]", 2f);
 
@@ -580,6 +587,7 @@ namespace LastWard.EditorTools
             }
             EditorBuildKit.CreateDiscoveryMeterUI(canvasGO.transform);
             EditorBuildKit.CreateHidingOverlayUI(canvasGO.transform);
+            EditorBuildKit.CreateControlsPanelUI(canvasGO.transform);
         }
 
         // Somewhere to break line of sight in each zone the Entity patrols, so the discovery meter

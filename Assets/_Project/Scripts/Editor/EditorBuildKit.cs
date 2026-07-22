@@ -413,14 +413,32 @@ namespace LastWard.EditorTools
         /// mesh out of the horror kit FBX when the pack actually contains that item; otherwise it
         /// falls back to a shaped block. The kit ships a key, but no crowbar.
         /// </summary>
+        /// <param name="standaloneModel">Art-relative path to a model that IS the item on its own
+        /// (e.g. "Props/Crowbar/scene.gltf"), textured from <paramref name="standaloneTextures"/>.
+        /// Takes precedence over carving one out of the horror kit.</param>
         public static GameObject CreateToolPickup(string itemId, string displayName, Vector3 position,
-            Color color, string meshNamePrefix = null, string texFile = null)
+            Color color, string meshNamePrefix = null, string texFile = null,
+            string standaloneModel = null, string standaloneTextures = null)
         {
             var tool = new GameObject($"Pickup_{itemId}");
             tool.transform.position = position;
 
             bool built = false;
-            if (!string.IsNullOrEmpty(meshNamePrefix))
+
+            if (!string.IsNullOrEmpty(standaloneModel))
+            {
+                var model = ArtKit.LoadModel(standaloneModel);
+                if (model != null)
+                {
+                    var instance = ArtKit.Spawn(model, tool.transform, "Model");
+                    if (!string.IsNullOrEmpty(standaloneTextures))
+                        ArtKit.AutoTexture(instance, standaloneTextures);
+                    NormalizeViewModel(instance, 0.8f);   // a crowbar is roughly this long
+                    built = true;
+                }
+            }
+
+            if (!built && !string.IsNullOrEmpty(meshNamePrefix))
             {
                 var kit = AssetDatabase.LoadAssetAtPath<GameObject>(
                     "Assets/_Project/Art/Props/HorrorKit/PSXHorrorKit_Default.fbx");
@@ -461,16 +479,52 @@ namespace LastWard.EditorTools
                 SetMaterial(block, MakeEmissive(color * 0.5f, color));
             }
 
+            // Dropped items rest on whatever is under them. Callers pass the surface height, and
+            // the mesh is settled onto it rather than hovering with its centre on that point —
+            // which is why the key was floating in mid-air.
+            var settle = tool.GetComponentInChildren<Renderer>();
+            if (settle != null)
+            {
+                var b = settle.bounds;
+                foreach (var r in tool.GetComponentsInChildren<Renderer>(true)) b.Encapsulate(r.bounds);
+                tool.transform.position += new Vector3(0f, position.y - b.min.y, 0f);
+            }
+
             // The pickup needs its own collider for the interaction ray, since the mesh's own
-            // colliders are stripped above.
+            // colliders are stripped above. Generous, and lifted to sit around the item rather than
+            // half-sunk through the floor — a small item flat on the ground is otherwise very hard
+            // to put a crosshair on.
             var trigger = tool.AddComponent<BoxCollider>();
-            trigger.size = new Vector3(0.3f, 0.3f, 0.8f);
+            trigger.size = new Vector3(0.4f, 0.35f, 0.9f);
+            trigger.center = new Vector3(0f, 0.14f, 0f);
 
             tool.AddComponent<NetworkObject>();
             var pickup = tool.AddComponent<NetworkedPickup>();
             SetString(pickup, "itemId", itemId);
             SetString(pickup, "displayName", displayName);
             return tool;
+        }
+
+        /// <summary>F3 controls reference — hidden until asked for.</summary>
+        public static void CreateControlsPanelUI(Transform canvas)
+        {
+            var container = CreateRect("ControlsPanel", canvas, new Vector2(0.5f, 0.5f), new Vector2(640f, 520f), Vector2.zero);
+            var group = container.gameObject.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+
+            var backing = CreateRect("Backing", container, new Vector2(0.5f, 0.5f), new Vector2(640f, 520f), Vector2.zero);
+            var backingImage = backing.gameObject.AddComponent<Image>();
+            backingImage.color = new Color(0.02f, 0.02f, 0.03f, 0.93f);
+
+            var textRect = CreateRect("Body", container, new Vector2(0.5f, 0.5f), new Vector2(580f, 470f), Vector2.zero);
+            var body = CreateText(textRect, "Text", 18f, TextAlignmentOptions.TopLeft);
+            StretchToParent((RectTransform)body.transform);
+            body.color = new Color(0.86f, 0.85f, 0.8f);
+
+            var panel = container.gameObject.AddComponent<ControlsPanelUI>();
+            SetRef(panel, "group", group);
+            SetRef(panel, "body", body);
         }
 
         /// <summary>
@@ -555,24 +609,41 @@ namespace LastWard.EditorTools
 
         public static void FixSceneNetworkObjectHashes()
         {
-            // Deliberately does nothing now — see below. Kept as a named no-op so the call site in
-            // the level builder still reads in the right order, and so this explanation lives where
-            // the next person will look for it.
+            // Every in-scene NetworkObject needs a unique, non-zero GlobalObjectIdHash, and this
+            // scene is built entirely from code — which is exactly the case NGO does NOT cover.
             //
-            // This used to assign sequential ids (0x1001, 0x1002, …) to every in-scene
-            // NetworkObject. That was never effective: NetworkObject.OnValidate REGENERATES
-            // GlobalObjectIdHash from GlobalObjectId.GetGlobalObjectIdSlow() whenever the Editor
-            // revalidates outside play mode, so the written values were overwritten. It was worse
-            // than useless — it dirtied the scene with numbers that disagreed with the ones actually
-            // used at runtime, and made it look like hashes were under our control when they weren't.
+            // NetworkObject.OnValidate regenerates the hash from GlobalObjectId, but only when the
+            // Editor validates the component: on import, or an inspector edit. A NetworkObject added
+            // with AddComponent during a build is never validated before the scene is saved, so it
+            // keeps the default 0. Several of those collide, and the host dies on start with
+            // "already contains the same GlobalObjectIdHash value 0". So this assignment is load-
+            // bearing, not redundant — it was briefly removed on the assumption OnValidate covered
+            // it, and hosting broke immediately.
             //
-            // How it really works: an in-scene NetworkObject's hash derives from the scene's asset
-            // GUID plus the object's local file id within that scene. Both are identical on every
-            // machine **provided everyone loads the byte-identical committed scene file**. So the
-            // fix for "NetworkPrefab hash was not found! In-Scene placed NetworkObject soft
-            // synchronization failure" is never to renumber anything — it is to make sure host and
-            // client are running the same M5_Level.unity. One person builds and commits it;
-            // everyone else pulls and plays without rebuilding.
+            // Sorted by hierarchy path before numbering, because FindObjectsByType returns an
+            // ARBITRARY order. Unsorted, two machines that each rebuild assign different ids to the
+            // same object, and the client then fails with "NetworkPrefab hash was not found!
+            // In-Scene placed NetworkObject soft synchronization failure". Sorting makes a rebuild
+            // reproducible — though the safe workflow is still one person building and committing
+            // the scene for everyone else to pull.
+            var netObjs = UnityObject.FindObjectsByType<NetworkObject>(FindObjectsInactive.Include);
+            System.Array.Sort(netObjs, (a, b) =>
+                string.CompareOrdinal(StableHierarchyPath(a.transform), StableHierarchyPath(b.transform)));
+
+            uint hash = 0x1001;
+            foreach (var netObj in netObjs)
+            {
+                var so = new SerializedObject(netObj);
+                var prop = so.FindProperty("GlobalObjectIdHash");
+                if (prop == null)
+                {
+                    Debug.LogWarning("NetworkObject has no serialized GlobalObjectIdHash field — NGO API may have changed.");
+                    continue;
+                }
+                prop.uintValue = hash++;
+                so.ApplyModifiedProperties();
+            }
+            Debug.Log($"[Build] Assigned unique scene hashes to {netObjs.Length} NetworkObjects.");
         }
 
         public static void CreateNetworkManager(GameObject playerPrefab)
@@ -912,11 +983,58 @@ namespace LastWard.EditorTools
                 AssetDatabase.CreateAsset(clue, cluePath);
                 AssetDatabase.SaveAssets();
             }
-            var panel = CreateBox(name, position, new Vector3(0.45f, 0.55f, 0.04f));
-            SetMaterial(panel, MakeEmissive(new Color(0.8f, 0.78f, 0.65f), new Color(0.45f, 0.43f, 0.35f)));
-            var note = panel.AddComponent<NoteInteractable>();
+            // The note is a flat sheet lying face-up, not a slab standing on its edge in mid-air.
+            // Callers pass the surface it rests on — a table top, a shelf, the floor — and the sheet
+            // is laid a couple of millimetres above it.
+            var root = new GameObject(name);
+            root.transform.position = position;
+            root.transform.rotation = Quaternion.Euler(0f, (name.GetHashCode() % 90) - 45f, 0f);
+
+            var letters = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/_Project/Art/Props/Letters/scene.gltf");
+            bool built = false;
+            if (letters != null)
+            {
+                var instance = (GameObject)UnityObject.Instantiate(letters, root.transform);
+                instance.name = "Model";
+                foreach (var collider in instance.GetComponentsInChildren<Collider>(true))
+                    UnityObject.DestroyImmediate(collider);
+                // The pack holds several sheets; keep one so each note is a single page.
+                var renderers = instance.GetComponentsInChildren<Renderer>(true);
+                for (int i = 1; i < renderers.Length; i++)
+                    if (renderers[i] != null) UnityObject.DestroyImmediate(renderers[i].gameObject);
+
+                if (instance.GetComponentInChildren<Renderer>(true) != null)
+                {
+                    ArtKit.AutoTexture(instance, "Props/Letters/textures");
+                    // NOT NormalizeViewModel — that turns a model's longest axis to face forward,
+                    // which stands a sheet of paper on its edge like a wedge. A note just needs
+                    // scaling and laying flat where it was put.
+                    ArtKit.FitLongest(instance, 0.3f);
+                    ArtKit.GroundAt(instance, position);
+                    built = true;
+                }
+                else UnityObject.DestroyImmediate(instance);
+            }
+
+            if (!built)
+            {
+                var sheet = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                sheet.name = "Model";
+                sheet.transform.SetParent(root.transform, false);
+                sheet.transform.localScale = new Vector3(0.28f, 0.006f, 0.36f);   // lying flat
+                sheet.transform.localPosition = new Vector3(0f, 0.003f, 0f);
+                UnityObject.DestroyImmediate(sheet.GetComponent<Collider>());
+                SetMaterial(sheet, MakeEmissive(new Color(0.8f, 0.78f, 0.65f), new Color(0.3f, 0.29f, 0.24f)));
+            }
+
+            // Interaction target — generous enough to click a thin sheet on a table.
+            var trigger = root.AddComponent<BoxCollider>();
+            trigger.size = new Vector3(0.36f, 0.14f, 0.42f);
+            trigger.center = new Vector3(0f, 0.07f, 0f);
+
+            var note = root.AddComponent<NoteInteractable>();
             SetRef(note, "clue", clue);
-            return panel.transform;
+            return root.transform;
         }
 
         public static Transform MakePoint(Vector3 position)

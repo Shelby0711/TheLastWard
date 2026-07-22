@@ -15,7 +15,7 @@ namespace LastWard.UI
     {
         [SerializeField] private CanvasGroup group;
         [SerializeField] private TextMeshProUGUI hint;
-        [SerializeField] private string hintFormat = "{0}   [E]";
+        [SerializeField] private string hintFormat = "{0}   [Q]        [E] take";
 
         [Tooltip("How fast the panels close in and open back up.")]
         [SerializeField] private float fadeSpeed = 6f;

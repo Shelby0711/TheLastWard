@@ -25,7 +25,9 @@ namespace LastWard.UI
         {
             bool show = !string.IsNullOrEmpty(prompt);
             root.SetActive(show);
-            if (show) promptText.text = $"[E]  {prompt}";
+            // Interactables that use a different key say so themselves ("[Q] Hide"). Prefixing
+            // [E] unconditionally produced "[E]  [Q] Hide under the bed".
+            if (show) promptText.text = prompt.StartsWith("[") ? prompt : $"[E]  {prompt}";
         }
     }
 }

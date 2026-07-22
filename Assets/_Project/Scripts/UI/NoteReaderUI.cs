@@ -34,6 +34,7 @@ namespace LastWard.UI
             titleText.text = title;
             bodyText.text = body;
             root.SetActive(true);
+            CursorLockGate.PanelOpened();
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
 
@@ -46,6 +47,7 @@ namespace LastWard.UI
         {
             Unsubscribe();
             root.SetActive(false);
+            CursorLockGate.PanelClosed();
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }

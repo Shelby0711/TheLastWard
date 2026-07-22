@@ -20,7 +20,8 @@ namespace LastWard.Player
         public static PlayerMeleeDefense Local { get; private set; }
 
         [SerializeField] private Camera swingCamera;
-        [SerializeField] private string weaponItemId = "pipe";
+        [Tooltip("Anything carried that can be swung. All of them behave the same: one hit, gone.")]
+        [SerializeField] private string[] weaponItemIds = { "pipe", "knife" };
         [Tooltip("How close the Entity must be for a swing to land.")]
         [SerializeField] private float swingRange = 3f;
         [Tooltip("Cone in front of the player a swing can connect within.")]
@@ -36,7 +37,19 @@ namespace LastWard.Player
             if (Local == this) Local = null;
         }
 
-        public bool HasWeapon => PlayerInventory.Local != null && PlayerInventory.Local.HasItem(weaponItemId);
+        /// <summary>The carried weapon, or null.</summary>
+        public string HeldWeapon
+        {
+            get
+            {
+                if (PlayerInventory.Local == null) return null;
+                foreach (var id in weaponItemIds)
+                    if (PlayerInventory.Local.HasItem(id)) return id;
+                return null;
+            }
+        }
+
+        public bool HasWeapon => HeldWeapon != null;
 
         /// <summary>
         /// Attempts a swing. Returns true if one was made, so the caller knows the input was
@@ -44,7 +57,9 @@ namespace LastWard.Player
         /// </summary>
         public bool TryStrike()
         {
-            if (!IsOwner || !HasWeapon) return false;
+            if (!IsOwner) return false;
+            string weapon = HeldWeapon;
+            if (weapon == null) return false;
 
             var entity = FindObjectOfType<EntityController>();
             if (entity == null) return false;
@@ -60,7 +75,7 @@ namespace LastWard.Player
 
             // Spent locally the moment it connects, so a laggy confirmation can't let the same pipe
             // be swung twice.
-            PlayerInventory.Local.RemoveItem(weaponItemId);
+            PlayerInventory.Local.RemoveItem(weapon);
             InteractionPromptUI.Instance?.SetPrompt(null);
             GameEvents.RaiseNoiseEmitted(transform.position, 14f, NoiseSource.PuzzleInteraction);
             StrikeServerRpc();

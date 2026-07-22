@@ -21,10 +21,18 @@ namespace LastWard.Player
                 ? NetworkManager.Singleton.LocalClientId
                 : 0UL;
 
-        private void OnEnable() => input.InteractPressed += TryInteract;
+        private void OnEnable()
+        {
+            input.InteractPressed += TryInteract;
+            input.HidePressed += ToggleHide;
+            input.AttackPressed += TryAttack;
+        }
+
         private void OnDisable()
         {
             input.InteractPressed -= TryInteract;
+            input.HidePressed -= ToggleHide;
+            input.AttackPressed -= TryAttack;
             InteractionPromptUI.Instance?.SetPrompt(null);
             CrosshairUI.Instance?.SetTargeted(false);
         }
@@ -33,15 +41,10 @@ namespace LastWard.Player
         {
             current = null;
 
-            // Inside a hiding spot the ray is worthless — it starts inside the collider it would
-            // have to hit — so targeting is suspended and the prompt comes from the overlay instead.
-            if (HidingSpot.LocalOccupied != null)
-            {
-                InteractionPromptUI.Instance?.SetPrompt(null);
-                CrosshairUI.Instance?.SetTargeted(false);
-                return;
-            }
-
+            // Targeting stays live while hidden. It used to be suspended, which meant you couldn't
+            // pick anything up from inside a wardrobe or from under a bed — exactly where things are
+            // stashed. Leaving it on is safe now that hiding has its own key and no longer competes
+            // with Interact for the same press.
             if (Physics.Raycast(interactCamera.transform.position, interactCamera.transform.forward, out var hit, interactRange, interactableMask, QueryTriggerInteraction.Ignore))
             {
                 // GetComponentInParent, not TryGetComponent: colliders usually sit on a child
@@ -53,23 +56,34 @@ namespace LastWard.Player
             CrosshairUI.Instance?.SetTargeted(current != null);
         }
 
+        // E — pick things up, read notes, open containers. Never hiding, never attacking.
         private void TryInteract()
         {
-            // Same key gets you out as got you in.
+            // A hiding spot is entered with Hide, not Interact, so looking at one while holding E
+            // doesn't swallow a pickup that happens to be behind it.
+            if (current is HidingSpot) return;
+            if (current != null && current.CanInteract(LocalPlayerId))
+                current.Interact(LocalPlayerId);
+        }
+
+        // Q — climb in, or climb out. The same key both ways.
+        private void ToggleHide()
+        {
             var hidingIn = HidingSpot.LocalOccupied;
             if (hidingIn != null)
             {
                 hidingIn.RequestExit();
                 return;
             }
+            if (current is HidingSpot spot && spot.CanInteract(LocalPlayerId))
+                spot.Interact(LocalPlayerId);
+        }
 
-            // Swinging takes priority over interacting: if the Entity is on top of you and you're
-            // holding a pipe, the button you'll be mashing is this one, and reading a note instead
-            // would be a bad joke. Only consumes the press when a swing actually connects.
-            if (PlayerMeleeDefense.Local != null && PlayerMeleeDefense.Local.TryStrike()) return;
-
-            if (current != null && current.CanInteract(LocalPlayerId))
-                current.Interact(LocalPlayerId);
+        // Left mouse — swing whatever's carried.
+        private void TryAttack()
+        {
+            if (HidingSpot.LocalOccupied != null) return;   // no swinging from inside a wardrobe
+            PlayerMeleeDefense.Local?.TryStrike();
         }
     }
 }

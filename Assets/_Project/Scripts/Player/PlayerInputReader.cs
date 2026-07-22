@@ -39,6 +39,13 @@ namespace LastWard.Player
         public bool CrouchHeld => controls.Gameplay.Crouch.IsPressed();
 
         public event Action InteractPressed;
+        /// <summary>Enter/leave a hiding spot. Separate from Interact so being hidden never
+        /// blocks picking things up — and so the key that got you in is the key that gets you out.</summary>
+        public event Action HidePressed;
+        /// <summary>Swing a carried weapon. Separate from Interact so a swing can't be mistaken
+        /// for reading a note with the Entity on top of you.</summary>
+        public event Action AttackPressed;
+        public event Action JournalPressed;
         public event Action FlashlightTogglePressed;
         public event Action InventorySlot1Pressed;
         public event Action InventorySlot2Pressed;
@@ -57,6 +64,9 @@ namespace LastWard.Player
             controls.Gameplay.InventorySlot1.performed += OnInventorySlot1;
             controls.Gameplay.InventorySlot2.performed += OnInventorySlot2;
             controls.Gameplay.Pause.performed += OnPause;
+            controls.Gameplay.Hide.performed += OnHide;
+            controls.Gameplay.Attack.performed += OnAttack;
+            controls.Gameplay.Journal.performed += OnJournal;
 
             controls.Spectator.SwitchNext.performed += OnSpectatorNext;
             controls.Spectator.SwitchPrevious.performed += OnSpectatorPrevious;
@@ -93,6 +103,9 @@ namespace LastWard.Player
             controls.Gameplay.InventorySlot1.performed -= OnInventorySlot1;
             controls.Gameplay.InventorySlot2.performed -= OnInventorySlot2;
             controls.Gameplay.Pause.performed -= OnPause;
+            controls.Gameplay.Hide.performed -= OnHide;
+            controls.Gameplay.Attack.performed -= OnAttack;
+            controls.Gameplay.Journal.performed -= OnJournal;
             controls.Spectator.SwitchNext.performed -= OnSpectatorNext;
             controls.Spectator.SwitchPrevious.performed -= OnSpectatorPrevious;
             controls.Spectator.Ping.performed -= OnSpectatorPing;
@@ -104,6 +117,9 @@ namespace LastWard.Player
         private void OnInventorySlot1(InputAction.CallbackContext ctx) => InventorySlot1Pressed?.Invoke();
         private void OnInventorySlot2(InputAction.CallbackContext ctx) => InventorySlot2Pressed?.Invoke();
         private void OnPause(InputAction.CallbackContext ctx) => PausePressed?.Invoke();
+        private void OnHide(InputAction.CallbackContext ctx) => HidePressed?.Invoke();
+        private void OnAttack(InputAction.CallbackContext ctx) => AttackPressed?.Invoke();
+        private void OnJournal(InputAction.CallbackContext ctx) => JournalPressed?.Invoke();
         private void OnSpectatorNext(InputAction.CallbackContext ctx) => SpectatorNextPressed?.Invoke();
         private void OnSpectatorPrevious(InputAction.CallbackContext ctx) => SpectatorPreviousPressed?.Invoke();
         private void OnSpectatorPing(InputAction.CallbackContext ctx) => SpectatorPingPressed?.Invoke();

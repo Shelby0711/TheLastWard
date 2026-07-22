@@ -39,6 +39,7 @@ namespace LastWard.UI
             closeScheduled = false;
             codeInput.text = string.Empty;
             root.SetActive(true);
+            CursorLockGate.PanelOpened();
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
 
@@ -52,6 +53,7 @@ namespace LastWard.UI
             Unsubscribe();
             target = null;
             root.SetActive(false);
+            CursorLockGate.PanelClosed();
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }

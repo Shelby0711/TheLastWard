@@ -49,7 +49,8 @@ namespace LastWard.Core
             base.OnDestroy();
         }
 
-        public string GetPrompt() => IsOccupied ? null : enterPrompt;
+        // Names the key, because it is no longer the same one as everything else.
+        public string GetPrompt() => IsOccupied ? null : $"[Q] {enterPrompt}";
 
         public bool CanInteract(ulong playerId) => !IsOccupied || occupant.Value == playerId;
 

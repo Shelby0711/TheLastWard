@@ -37,7 +37,15 @@ namespace LastWard.Net
             foreach (var collider in GetComponentsInChildren<Collider>(true)) collider.enabled = !isTaken;
         }
 
-        public string GetPrompt() => $"Pick up {displayName}";
+        public string GetPrompt()
+        {
+            if (taken.Value) return null;
+            // Without this the prompt still reads "Pick up X" while CanInteract quietly refuses,
+            // so the key looks broken rather than the hands looking full.
+            if (PlayerInventory.Local != null && PlayerInventory.Local.IsFull)
+                return $"Hands full — can't take {displayName}";
+            return $"Pick up {displayName}";
+        }
 
         public bool CanInteract(ulong playerId) =>
             !taken.Value && PlayerInventory.Local != null && !PlayerInventory.Local.IsFull;
