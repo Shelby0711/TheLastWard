@@ -524,6 +524,20 @@ namespace LastWard.EditorTools
             SetRef(meter, "fill", fillImage);
         }
 
+        /// <summary>
+        /// Sibling index + name at every level. The index disambiguates the duplicate names this
+        /// level has (two "Pickup_Fuse", several "Slat"), and is deterministic because the build
+        /// script always creates objects in the same order.
+        /// </summary>
+        private static string StableHierarchyPath(Transform t)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            for (var cursor = t; cursor != null; cursor = cursor.parent)
+                parts.Add($"{cursor.GetSiblingIndex():D4}:{cursor.name}");
+            parts.Reverse();
+            return string.Join("/", parts);
+        }
+
         public static void CreateBootstrapCamera(Vector3 position)
         {
             var camGO = new GameObject("MenuCamera");
@@ -541,8 +555,18 @@ namespace LastWard.EditorTools
 
         public static void FixSceneNetworkObjectHashes()
         {
+            // Sorted by hierarchy path before numbering. FindObjectsByType returns an ARBITRARY
+            // order, so numbering it directly gives a different hash to the same object on each
+            // machine that rebuilds — and NGO matches in-scene NetworkObjects between host and
+            // client purely by this hash. A mismatch produces "NetworkPrefab hash was not found!
+            // In-Scene placed NetworkObject soft synchronization failure" and the join dies.
+            // The path is stable because the build script creates everything in a fixed order.
+            var netObjs = UnityObject.FindObjectsByType<NetworkObject>(FindObjectsInactive.Exclude);
+            System.Array.Sort(netObjs, (a, b) =>
+                string.CompareOrdinal(StableHierarchyPath(a.transform), StableHierarchyPath(b.transform)));
+
             uint hash = 0x1001;
-            foreach (var netObj in UnityObject.FindObjectsByType<NetworkObject>(FindObjectsInactive.Exclude))
+            foreach (var netObj in netObjs)
             {
                 var so = new SerializedObject(netObj);
                 var prop = so.FindProperty("GlobalObjectIdHash");
@@ -563,6 +587,13 @@ namespace LastWard.EditorTools
             var nmGO = new GameObject("NetworkManager");
             var nm = nmGO.AddComponent<NetworkManager>();
             var transport = nmGO.AddComponent<UnityTransport>();
+
+            // The default queue (128 packets) overflows the moment a client joins: this scene holds
+            // a lot of in-scene NetworkObjects — every door, pickup, container, puzzle and aftermath
+            // anchor — and they all synchronize in one burst, which floods the send queue and
+            // spams "send queue full (need to increase 'Max Packet Queue Size' parameter)".
+            transport.MaxPacketQueueSize = 512;
+            transport.MaxSendQueueSize = 1024 * 1024;
 
             var so = new SerializedObject(nm);
             var playerProp = so.FindProperty("NetworkConfig.PlayerPrefab");
