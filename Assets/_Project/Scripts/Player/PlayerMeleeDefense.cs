@@ -51,6 +51,18 @@ namespace LastWard.Player
 
         public bool HasWeapon => HeldWeapon != null;
 
+        // Cached: there is exactly one Entity, and the old code re-scanned every object in the
+        // scene on each swing using the deprecated FindObjectOfType.
+        private EntityController cachedEntity;
+        private EntityController Entity
+        {
+            get
+            {
+                if (cachedEntity == null) cachedEntity = FindAnyObjectByType<EntityController>();
+                return cachedEntity;
+            }
+        }
+
         /// <summary>
         /// Attempts a swing. Returns true if one was made, so the caller knows the input was
         /// consumed and shouldn't also fire a normal interaction.
@@ -61,7 +73,7 @@ namespace LastWard.Player
             string weapon = HeldWeapon;
             if (weapon == null) return false;
 
-            var entity = FindObjectOfType<EntityController>();
+            var entity = Entity;
             if (entity == null) return false;
 
             Vector3 toEntity = entity.transform.position - transform.position;
@@ -85,7 +97,7 @@ namespace LastWard.Player
         [ServerRpc(RequireOwnership = false)]
         private void StrikeServerRpc()
         {
-            var entity = FindObjectOfType<EntityController>();
+            var entity = Entity;
             if (entity == null) return;
             // Re-checked on the server; the client's claim isn't trusted.
             if (Vector3.Distance(entity.transform.position, transform.position) > swingRange * 1.5f) return;
