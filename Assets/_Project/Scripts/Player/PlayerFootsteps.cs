@@ -4,30 +4,45 @@ using UnityEngine;
 namespace LastWard.Player
 {
     /// <summary>
-    /// Plays footsteps from horizontal movement, on every copy of the player (position-derived, not
-    /// input-derived) so all clients hear each other — important for co-op/Entity tension. Faster
-    /// movement shortens the stride and raises pitch/volume, so sprinting reads as sprinting.
+    /// Footsteps for every copy of the player (position-derived, not input-derived) so all clients
+    /// hear each other — important for co-op and for the Entity's tension.
+    ///
+    /// The available clips are continuous LOOPS of someone running (the gravel one is nearly two
+    /// minutes long), not single footfalls. They are therefore played as one looping source gated on
+    /// movement, not fired per stride: firing a multi-second loop on every step stacked dozens of
+    /// overlapping copies, which produced a permanent running sound and enough voices to distort the
+    /// whole mix.
     /// </summary>
     [RequireComponent(typeof(AudioSource))]
     public class PlayerFootsteps : MonoBehaviour
     {
-        [SerializeField] private float walkStride = 2.2f;
+        [Tooltip("Below this speed the player counts as standing still.")]
+        [SerializeField] private float moveThreshold = 0.6f;
         [SerializeField] private float sprintSpeedThreshold = 4f;
+        [SerializeField] private float walkVolume = 0.4f;
+        [SerializeField] private float sprintVolume = 0.75f;
+        [SerializeField] private float fadeSpeed = 8f;
 
         private AudioSource source;
-        private AudioClip footstep;
+        private AudioClip interior;
+        private AudioClip gravel;
         private Vector3 lastPosition;
-        private float accumulated;
+        private float smoothedSpeed;
 
         private void Awake()
         {
             source = GetComponent<AudioSource>();
             source.playOnAwake = false;
+            source.loop = true;
+            source.volume = 0f;
             source.spatialBlend = 1f;
             source.rolloffMode = AudioRolloffMode.Linear;
             source.minDistance = 1f;
             source.maxDistance = 18f;
-            footstep = ProceduralSfx.Footstep();
+
+            interior = GameSfx.FootstepsInterior;
+            gravel = GameSfx.FootstepsGravel;
+            source.clip = interior;
             lastPosition = transform.position;
         }
 
@@ -37,19 +52,29 @@ namespace LastWard.Player
             delta.y = 0f;
             lastPosition = transform.position;
 
-            float dist = delta.magnitude;
-            float speed = dist / Mathf.Max(Time.deltaTime, 0.0001f);
-            if (speed < 0.5f) { accumulated = 0f; return; }
+            float speed = delta.magnitude / Mathf.Max(Time.deltaTime, 0.0001f);
+            // Smoothed: raw per-frame deltas are noisy over the network and would chatter the audio
+            // on and off for remote players.
+            smoothedSpeed = Mathf.Lerp(smoothedSpeed, speed, Time.deltaTime * 10f);
 
-            accumulated += dist;
-            bool sprinting = speed > sprintSpeedThreshold;
-            float stride = sprinting ? walkStride * 0.72f : walkStride;
-            if (accumulated >= stride)
+            bool moving = smoothedSpeed > moveThreshold;
+            bool sprinting = smoothedSpeed > sprintSpeedThreshold;
+
+            // Gravel outside, boards inside — z=0 is the building face, the same boundary the level
+            // geometry uses. Swapped only while silent, so the clip never cuts mid-stride.
+            var wanted = transform.position.z < 0f && gravel != null ? gravel : interior;
+            if (source.clip != wanted && source.volume < 0.02f)
             {
-                accumulated = 0f;
-                source.pitch = Random.Range(0.9f, 1.1f) * (sprinting ? 1.15f : 1f);
-                source.PlayOneShot(footstep, sprinting ? 0.9f : 0.55f);
+                source.clip = wanted;
+                if (moving && wanted != null) source.Play();
             }
+
+            float target = moving ? (sprinting ? sprintVolume : walkVolume) : 0f;
+            source.volume = Mathf.MoveTowards(source.volume, target, Time.deltaTime * fadeSpeed);
+            source.pitch = sprinting ? 1.15f : 0.92f;
+
+            if (moving && source.clip != null && !source.isPlaying) source.Play();
+            else if (!moving && source.volume <= 0.001f && source.isPlaying) source.Stop();
         }
     }
 }

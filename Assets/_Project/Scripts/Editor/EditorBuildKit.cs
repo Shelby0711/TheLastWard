@@ -140,12 +140,20 @@ namespace LastWard.EditorTools
             // Footsteps run on all copies (position-derived) so everyone hears everyone — not owner-only.
             root.AddComponent<PlayerFootsteps>();
 
+            // Breathing is owner-only and 2D: hearing a teammate panic would leak information the
+            // Entity is supposed to own.
+            var breathing = root.AddComponent<PlayerBreathing>();
+            SetRef(breathing, "motor", motor);
+            SetRef(breathing, "state", netState);
+
+            BuildPlayerBody(root);
+
             var networkPlayer = root.AddComponent<NetworkPlayer>();
 
             // Owner-only: disabled in the prefab, re-enabled for the owner by NetworkPlayer on spawn.
             // PlayerNetworkState + PlayerDeath stay enabled on all copies (state must sync/apply
             // everywhere; PlayerDeath self-guards to the owner). SpectatorController is owner-only.
-            Behaviour[] ownerOnly = { camera, audioListener, input, motor, look, flashlightController, interactor, inventory, spectator };
+            Behaviour[] ownerOnly = { camera, audioListener, input, motor, look, flashlightController, interactor, inventory, spectator, breathing };
             foreach (var b in ownerOnly) b.enabled = false;
             SetRefArray(networkPlayer, "ownerOnlyBehaviours", ownerOnly);
 
@@ -168,7 +176,7 @@ namespace LastWard.EditorTools
             holder.transform.localRotation = Quaternion.Euler(6f, -8f, 4f);
 
             var model = AssetDatabase.LoadAssetAtPath<GameObject>(
-                "Assets/_Project/Art/Props/HorrorKit/PSXHorrorKit_Default.fbx");
+                "Assets/_Project/Art/Props/HorrorKitV2/HorrorKitV2.fbx");
             bool built = false;
 
             if (model != null)
@@ -441,7 +449,7 @@ namespace LastWard.EditorTools
             if (!built && !string.IsNullOrEmpty(meshNamePrefix))
             {
                 var kit = AssetDatabase.LoadAssetAtPath<GameObject>(
-                    "Assets/_Project/Art/Props/HorrorKit/PSXHorrorKit_Default.fbx");
+                    "Assets/_Project/Art/Props/HorrorKitV2/HorrorKitV2.fbx");
                 if (kit != null)
                 {
                     var instance = (GameObject)UnityObject.Instantiate(kit, tool.transform);
@@ -458,7 +466,7 @@ namespace LastWard.EditorTools
                         NormalizeViewModel(instance, 0.22f);
                         if (!string.IsNullOrEmpty(texFile))
                         {
-                            var mat = ArtKit.MakeTexturedMaterial("Props/HorrorKit/textures/" + texFile, $"M_{itemId}");
+                            var mat = ArtKit.MakeTexturedMaterial("Props/HorrorKitV2/textures/" + texFile, $"M_{itemId}");
                             if (mat != null) ArtKit.ApplyMaterial(instance, mat);
                         }
                         built = true;
@@ -503,6 +511,35 @@ namespace LastWard.EditorTools
             SetString(pickup, "itemId", itemId);
             SetString(pickup, "displayName", displayName);
             return tool;
+        }
+
+        /// <summary>
+        /// Full-screen jumpscare overlay. Uses the Entity's own texture if one is available, so the
+        /// thing filling the screen is recognisably the thing that has been following you.
+        /// </summary>
+        public static void CreateJumpscareUI(Transform canvas)
+        {
+            var container = CreateRect("Jumpscare", canvas, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            StretchToParent(container);
+            var group = container.gameObject.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            group.interactable = false;
+
+            var imageRect = CreateRect("Face", container, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            StretchToParent(imageRect);
+            var image = imageRect.gameObject.AddComponent<Image>();
+            image.raycastTarget = false;
+            image.preserveAspect = false;
+
+            // A plain red bloom, not the Entity's texture. The creature itself charges the camera
+            // now, so the overlay only has to tint the moment — anything opaque would hide the one
+            // thing worth looking at.
+            image.color = new Color(0.55f, 0.02f, 0.02f);
+
+            var scare = container.gameObject.AddComponent<JumpscareUI>();
+            SetRef(scare, "group", group);
+            SetRef(scare, "image", image);
         }
 
         /// <summary>F3 controls reference — hidden until asked for.</summary>
@@ -590,6 +627,49 @@ namespace LastWard.EditorTools
                 parts.Add($"{cursor.GetSiblingIndex():D4}:{cursor.name}");
             parts.Reverse();
             return string.Join("/", parts);
+        }
+
+        /// <summary>
+        /// Adds the three character models to the player prefab as inactive variants.
+        /// <see cref="PlayerBody"/> enables one at spawn based on client id, and never for its owner.
+        /// </summary>
+        private static void BuildPlayerBody(GameObject root)
+        {
+            string[] models =
+            {
+                "Characters/Player01/scene.gltf",
+                "Characters/Player02/scene.gltf",
+                "Characters/Player03/scene.gltf",
+            };
+
+            var holder = new GameObject("Body");
+            holder.transform.SetParent(root.transform, false);
+
+            var variants = new System.Collections.Generic.List<GameObject>();
+            for (int i = 0; i < models.Length; i++)
+            {
+                var model = ArtKit.LoadModel(models[i]);
+                if (model == null) continue;
+
+                var instance = ArtKit.Spawn(model, holder.transform, $"Body_{i}");
+                string texFolder = models[i].Replace("/scene.gltf", "/textures");
+                ArtKit.AutoTexture(instance, texFolder, alphaClip: false, pointFilter: false);
+                // These export lying down / Z-up, same as the tree pack; stand them before sizing.
+                ArtKit.StandUpright(instance);
+                ArtKit.FitHeight(instance, 1.75f);
+
+                // Feet on the player root: the CharacterController's origin is at floor level.
+                if (ArtKit.TryGetBounds(instance, out var b))
+                    instance.transform.position += root.transform.position - new Vector3(b.center.x, b.min.y, b.center.z);
+
+                ArtKit.EnsureLoopingAnimator(instance, models[i], $"AC_Player{i + 1}");
+                instance.SetActive(false);
+                variants.Add(instance);
+            }
+
+            var body = root.AddComponent<PlayerBody>();
+            SetRefArray(body, "variants", variants.ToArray());
+            Debug.Log($"[Build] Player body: {variants.Count} character variants attached.");
         }
 
         public static void CreateBootstrapCamera(Vector3 position)
@@ -951,10 +1031,13 @@ namespace LastWard.EditorTools
                 AssetDatabase.CreateAsset(clue, cluePath);
                 AssetDatabase.SaveAssets();
             }
-            var notePanel = CreateBox("Note_BreakerOrder", orderNotePosition, new Vector3(0.45f, 0.55f, 0.04f));
-            SetMaterial(notePanel, MakeEmissive(new Color(0.8f, 0.78f, 0.65f), new Color(0.45f, 0.43f, 0.35f)));
-            var orderNote = notePanel.AddComponent<NoteInteractable>();
-            SetRef(orderNote, "clue", clue);
+            // Routed through CreateNoteProp like every other note. This used to build its own box
+            // inline, which is why the Lobby note stayed a blank slab while the rest became paper —
+            // one duplicated code path that never got the fix.
+            CreateNoteProp("Note_BreakerOrder", orderNotePosition, cluePath,
+                "p1_breaker_order", "Maintenance Scrap",
+                "Grease-pencil, barely legible:\n\n\"Breaker order -- 2, 3, 1. Do NOT skip. Ward loses power otherwise.\"",
+                2f);
 
             return door;
         }
@@ -1102,12 +1185,41 @@ namespace LastWard.EditorTools
             var root = new GameObject(name);
             root.AddComponent<NetworkObject>();
 
-            var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            body.name = "Body";
-            body.transform.SetParent(root.transform);
-            body.transform.localPosition = new Vector3(0f, 0.18f, 0f);
-            body.transform.localScale = new Vector3(0.6f, 0.35f, 1.8f);
-            SetMaterial(body, MakeMaterial(bodyColor));
+            // A real corpse rather than a coloured box. The headless man is the strongest read for
+            // "someone died here" without needing a death animation.
+            var corpseModel = ArtKit.LoadModel("Characters/Corpse/scene.gltf");
+            if (corpseModel != null)
+            {
+                var corpse = ArtKit.Spawn(corpseModel, root.transform, "Body");
+                ArtKit.AutoTexture(corpse, "Characters/Corpse/textures", alphaClip: false, pointFilter: false);
+                ArtKit.StandUpright(corpse);
+                ArtKit.FitHeight(corpse, 1.7f);
+                // Tipped over — it is a body on the floor, not a figure standing in the dark.
+                corpse.transform.Rotate(90f, Random.Range(0f, 360f), 0f, Space.World);
+                if (ArtKit.TryGetBounds(corpse, out var cb))
+                    corpse.transform.position += root.transform.position - new Vector3(cb.center.x, cb.min.y, cb.center.z);
+                ArtKit.ApplyMaterial(corpse, MakeMaterial(bodyColor));
+            }
+            else
+            {
+                var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                body.name = "Body";
+                body.transform.SetParent(root.transform);
+                body.transform.localPosition = new Vector3(0f, 0.18f, 0f);
+                body.transform.localScale = new Vector3(0.6f, 0.35f, 1.8f);
+                SetMaterial(body, MakeMaterial(bodyColor));
+            }
+
+            // Occasional viscera. Not every time — a detail that always appears stops being noticed.
+            var heartModel = ArtKit.LoadModel("Props/Heart/scene.gltf");
+            if (heartModel != null && Random.value < 0.45f)
+            {
+                var heart = ArtKit.Spawn(heartModel, root.transform, "Heart");
+                ArtKit.AutoTexture(heart, "Props/Heart/textures", alphaClip: false, pointFilter: false);
+                ArtKit.FitLongest(heart, 0.16f);
+                heart.transform.position = root.transform.position +
+                    new Vector3(Random.Range(-0.7f, 0.7f), 0.04f, Random.Range(-0.7f, 0.7f));
+            }
 
             var textGO = new GameObject("FlavorText", typeof(RectTransform));
             textGO.transform.SetParent(root.transform);
@@ -1162,38 +1274,27 @@ namespace LastWard.EditorTools
             root.transform.position = position;
             root.transform.rotation = Quaternion.Euler(0f, (name.GetHashCode() % 90) - 45f, 0f);
 
-            // The pack is a spread of several sheets. SplitIntoProps separates them so ONE can be
-            // kept as a single page.
-            //
-            // Previously the extras were merely disabled — but a disabled Renderer still reports
-            // bounds, so the fit-to-size measured the whole spread and scaled the one visible sheet
-            // down to almost nothing. Extracting a single sheet and discarding the rest is the only
-            // version of this that measures correctly.
+            // A textured quad, not the imported letter mesh. Those sheets are authored as vertical
+            // planes inside a multi-sheet spread, and every attempt to extract and lay one flat cost
+            // a build cycle. A quad wearing the hospital-letter texture is two lines of code, always
+            // lies flat, always faces up, and is what the player actually sees anyway.
             bool built = false;
-            var letters = ArtKit.LoadModel("Props/Letters/scene.gltf");
-            if (letters != null)
+            var paper = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/_Project/Art/Textures/Note_Hospital.png");
+            if (paper != null)
             {
-                var scratch = ArtKit.Spawn(letters, null, "~LetterSource");
-                var sheets = ArtKit.SplitIntoProps(scratch, null, 0.05f);
-                if (sheets.Count > 0)
-                {
-                    // Vary which sheet each note uses so the notes aren't visibly identical.
-                    var chosen = sheets[Mathf.Abs(name.GetHashCode()) % sheets.Count];
-                    chosen.transform.SetParent(root.transform, true);
-                    chosen.name = "Model";
+                var sheet = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                sheet.name = "Model";
+                sheet.transform.SetParent(root.transform, false);
+                // Quads face +Z by default; rotate to face straight up off the surface.
+                sheet.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                // A4-ish, lying on whatever it was placed on.
+                sheet.transform.localScale = new Vector3(0.21f, 0.297f, 1f);
+                sheet.transform.localPosition = new Vector3(0f, 0.004f, 0f);
+                UnityObject.DestroyImmediate(sheet.GetComponent<Collider>());
 
-                    for (int i = 0; i < sheets.Count; i++)
-                        if (sheets[i] != null && sheets[i] != chosen) UnityObject.DestroyImmediate(sheets[i]);
-
-                    ArtKit.AutoTexture(chosen, "Props/Letters/textures");
-                    // Laid flat first: the sheets are authored as vertical planes (thinnest on Z),
-                    // so without this every note stands on its edge like a headstone.
-                    ArtKit.LayFlat(chosen);
-                    ArtKit.FitLongest(chosen, 0.3f);
-                    ArtKit.GroundAt(chosen, position);
-                    built = true;
-                }
-                if (scratch != null) UnityObject.DestroyImmediate(scratch);
+                var mat = ArtKit.MakeMaterialFromTexture(paper, "M_NoteHospital");
+                if (mat != null) SetMaterial(sheet, mat);
+                built = true;
             }
 
             if (!built)

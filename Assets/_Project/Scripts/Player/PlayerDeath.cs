@@ -34,7 +34,8 @@ namespace LastWard.Player
             foreach (var b in disableOnDeath)
                 if (b != null) b.enabled = false;
 
-            AudioSource.PlayClipAtPoint(ProceduralSfx.DeathSting(), transform.position);
+            // The victim's cry as it takes them, not an abstract sting.
+            AudioSource.PlayClipAtPoint(GameSfx.TakenAway, transform.position, 0.9f);
 
             bool othersAlive = SpectatorController.AnyOtherAlive(state);
             DeathScreenUI.Instance?.Show(othersAlive ? "Now see them Die." : "No one will Miss You.");

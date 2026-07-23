@@ -39,7 +39,7 @@ namespace LastWard.UI
                 Invoke(nameof(HideMarker), visibleSeconds);
             }
             var listener = FindAnyObjectByType<AudioListener>();
-            AudioSource.PlayClipAtPoint(ProceduralSfx.PingChime(), listener != null ? listener.transform.position : Vector3.zero);
+            AudioSource.PlayClipAtPoint(GameSfx.SwitchFlip, listener != null ? listener.transform.position : Vector3.zero);
         }
 
         private void HideMarker()

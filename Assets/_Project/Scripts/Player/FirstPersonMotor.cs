@@ -33,6 +33,8 @@ namespace LastWard.Player
 
         public bool IsCrouching { get; private set; }
         public bool IsSprinting { get; private set; }
+        /// <summary>Actually travelling, not merely holding a key against a wall.</summary>
+        public bool IsMoving => horizontalVelocity.sqrMagnitude > 0.04f;
 
         private void Awake()
         {

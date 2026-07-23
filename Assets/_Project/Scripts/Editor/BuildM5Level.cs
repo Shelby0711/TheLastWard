@@ -55,6 +55,8 @@ namespace LastWard.EditorTools
             EditorBuildKit.SetVector3(sessionManager, "spawnPosition", new Vector3(0f, 1f, -13f));
             EditorBuildKit.CreateKnowledgeService();
             CreateObjectiveTracker();
+            // The building's voice: a continuous bed plus irregular distant one-shots.
+            new GameObject("AmbienceDirector").AddComponent<LastWard.Audio.AmbienceDirector>();
             var aftermathTemplates = EditorBuildKit.CreateAftermathTemplates();
             EditorBuildKit.CreateAftermathManager(aftermathTemplates);
             CreateAftermathAnchors();
@@ -391,7 +393,7 @@ namespace LastWard.EditorTools
             // must stay reachable BEFORE the Lobby: the fuse shuffle can put both fuses behind the
             // key and the crowbar at once, so a tool locked past the fuse door is unwinnable.
             var key = EditorBuildKit.CreateToolPickup("key", "rusted key", Vector3.zero,
-                new Color(0.85f, 0.72f, 0.25f), meshNamePrefix: "Key", texFile: "LockAndKey_Tex_1024.png");
+                new Color(0.85f, 0.72f, 0.25f), meshNamePrefix: "Key", texFile: "KeyBake-V2.0_1024.png");
             var crowbar = EditorBuildKit.CreateToolPickup("crowbar", "crowbar", Vector3.zero,
                 new Color(0.75f, 0.3f, 0.2f),
                 standaloneModel: "Props/Crowbar/scene.gltf", standaloneTextures: "Props/Crowbar/textures");
@@ -404,7 +406,7 @@ namespace LastWard.EditorTools
             CreatePipePickup(new Vector3(-3.7f, 0.15f, 22.8f));
             CreatePipePickup(new Vector3(3.3f, 0.15f, 42.2f));
             EditorBuildKit.CreateToolPickup("knife", "kitchen knife", new Vector3(2.2f, 0.12f, 14.4f),
-                new Color(0.8f, 0.8f, 0.85f), meshNamePrefix: "Knife_", texFile: "Knife_Tex_1024.png");
+                new Color(0.8f, 0.8f, 0.85f), meshNamePrefix: "Knife_", texFile: "Knife-V2.0_1024.png");
 
             return points.ToArray();
         }
@@ -466,10 +468,10 @@ namespace LastWard.EditorTools
             // Textured rather than flat-shaded. Walls/floor/ceiling repeat their texture at a real
             // world size (see ArtKit.ApplyTiledMaterial), which is most of the difference between
             // "greybox" and "a place".
-            const string wallTex = "Textures/Wall_Stone.png";
-            const string wallAlt = "Textures/Wall_Tile.png";
-            const string floorTex = "Textures/Floor_Metal.png";
-            const string ceilTex = "Textures/Floor_Stone.png";
+            const string wallTex = "Textures/H_Wall_Corridor.png";
+            const string wallAlt = "Textures/H_Metal.png";
+            const string floorTex = "Textures/H_Floor_Corridor.png";
+            const string ceilTex = "Textures/H_Stone.png";
 
             Tile(EditorBuildKit.CreateBox("Corridor_Floor", new Vector3(0f, -0.1f, 32f), new Vector3(8f, 0.2f, 24f)), floorTex, 2f);
             Tile(EditorBuildKit.CreateBox("Corridor_Ceiling", new Vector3(0f, wallHeight, 32f), new Vector3(8f, 0.2f, 24f)), ceilTex, 3f);
@@ -499,11 +501,11 @@ namespace LastWard.EditorTools
             // doesn't read as one repeated box, and each is a genuine dead end — somewhere to be
             // caught, and somewhere worth searching.
             BuildSideRoom("Room_Storage", new Vector3(7.5f, 0f, 24f), new Vector2(7f, 6f),
-                "Textures/Wall_Brick.png", "Textures/Floor_Wood.png", new Color(1f, 0.8f, 0.55f));
+                "Textures/H_Brick.png", "Textures/H_Floor_Room.png", new Color(1f, 0.8f, 0.55f));
             BuildSideRoom("Room_Washroom", new Vector3(7.5f, 0f, 34f), new Vector2(7f, 6f),
                 "Textures/Wall_Tile.png", "Textures/Floor_Tile.png", new Color(0.7f, 0.95f, 1f));
             BuildSideRoom("Room_Records", new Vector3(-8.5f, 0f, 41f), new Vector2(6f, 6f),
-                "Textures/Wall_StoneAlt.png", "Textures/Floor_Stone.png", new Color(1f, 0.55f, 0.3f));
+                "Textures/H_Wall_Room.png", "Textures/H_Stone.png", new Color(1f, 0.55f, 0.3f));
 
             // Failing tubes down the length of the corridor. Alternating sodium-yellow and a sick
             // red so the run reads as two different failures rather than one repeated prop — and
@@ -848,6 +850,7 @@ namespace LastWard.EditorTools
             EditorBuildKit.CreateDiscoveryMeterUI(canvasGO.transform);
             EditorBuildKit.CreateHidingOverlayUI(canvasGO.transform);
             EditorBuildKit.CreateControlsPanelUI(canvasGO.transform);
+            EditorBuildKit.CreateJumpscareUI(canvasGO.transform);
         }
 
         // Somewhere to break line of sight in each zone the Entity patrols, so the discovery meter
@@ -979,11 +982,16 @@ namespace LastWard.EditorTools
 
             // Done before anything is instantiated: the farm pack ships 4K textures that stall
             // play-mode entry if left at full resolution.
-            ArtKit.CapTextureSize("Environment/Farm/textures", 1024);
+            ArtKit.CapTextureSize("Environment/Farm/textures", 256);
+            // Dressing textures that arrived oversized. The grass albedo alone is 3.6MB.
+            ArtKit.CapTextureSize("Environment/Grass", 256);
+            ArtKit.CapTextureSize("Environment/TreePack", 256);
+            ArtKit.CapTextureSize("Characters/Entity/textures", 512);
 
             AddMoonlight(root);
             ScatterTreeline(root, scratch);
             ScatterForestTrail(root);
+            ScatterGrass(root);
             PlaceFarmStructures(root, scratch);
             SwapCarVisual(root);
             DressInteriors(root, scratch);
@@ -1008,7 +1016,11 @@ namespace LastWard.EditorTools
             light.type = LightType.Directional;
             light.color = new Color(0.55f, 0.62f, 0.9f);
             light.intensity = 0.3f;
-            light.shadows = LightShadows.Soft;
+            // Hard shadows, not soft. Soft shadows on a directional light mean a filtered lookup
+            // over the whole scene every frame, and this one covers the entire exterior including
+            // every tree. Hard shadows keep the interiors dark (which is what the shadow is FOR)
+            // at a fraction of the cost.
+            light.shadows = LightShadows.Hard;
         }
 
         // "Duplicate the trees to make it denser and eerier" — the forest pack is a showcase scene
@@ -1098,14 +1110,16 @@ namespace LastWard.EditorTools
             var parent = new GameObject("Forest").transform;
             parent.SetParent(root, false);
 
+            // Capped for the same reason as the grass — these are full tree meshes.
+            const int maxTrees = 22;
             var rng = new System.Random(90210);
             int placed = 0;
 
             // Yard spans x[-15,15], z[-35,0]. Trees fill it except along the trail and around the
             // car and door approach.
-            for (float z = -34f; z <= -1f; z += 2.4f)
+            for (float z = -34f; z <= -1f && placed < maxTrees; z += 5.5f)
             {
-                for (float x = -14f; x <= 14f; x += 2.4f)
+                for (float x = -14f; x <= 14f && placed < maxTrees; x += 5.5f)
                 {
                     float jx = x + (float)(rng.NextDouble() - 0.5) * 1.8f;
                     float jz = z + (float)(rng.NextDouble() - 0.5) * 1.8f;
@@ -1135,6 +1149,53 @@ namespace LastWard.EditorTools
                 }
             }
             Debug.Log($"[Build] Forest: {placed} trees placed, trail kept clear.");
+        }
+
+        /// <summary>
+        /// Grass clumps across the yard, thickest away from the trail. Breaks up the flat ground
+        /// plane, which reads as a bare stage however many trees are standing on it.
+        ///
+        /// Kept off the trail itself — a worn path through overgrowth is what tells the player where
+        /// to walk without a marker.
+        /// </summary>
+        private static void ScatterGrass(Transform root)
+        {
+            var model = ArtKit.LoadModel("Environment/Grass/Grass.fbx");
+            if (model == null) return;
+
+            var parent = new GameObject("Grass").transform;
+            parent.SetParent(root, false);
+
+            // The grass model is a 4MB HD mesh. It is dressing, so it gets a hard budget: a coarse
+            // grid and a cap. Hundreds of instances of a high-poly model is what made the exterior
+            // unplayable, and no amount of grass is worth the frame rate.
+            const int maxClumps = 24;
+            var material = ArtKit.MakeTexturedMaterial("Environment/Grass/Grass.png", "M_Grass", alphaClip: true);
+            var rng = new System.Random(5150);
+            int placed = 0;
+
+            for (float z = -34f; z <= -1f && placed < maxClumps; z += 5f)
+            {
+                for (float x = -14f; x <= 14f && placed < maxClumps; x += 5f)
+                {
+                    float jx = x + (float)(rng.NextDouble() - 0.5) * 2.4f;
+                    float jz = z + (float)(rng.NextDouble() - 0.5) * 2.4f;
+
+                    // Thins out toward the trail and stops at its edge, so the path stays legible.
+                    float fromTrail = Mathf.Abs(jx - TrailCentreX(jz));
+                    if (fromTrail < TrailHalfWidth) continue;
+                    if ((float)rng.NextDouble() > Mathf.Clamp01(fromTrail / 6f) * 0.6f) continue;
+
+                    var clump = ArtKit.Spawn(model, parent, "Grass");
+                    ArtKit.ApplyMaterial(clump, material);
+                    ArtKit.StandUpright(clump);
+                    ArtKit.FitHeight(clump, 0.4f + (float)rng.NextDouble() * 0.5f);
+                    clump.transform.Rotate(0f, (float)rng.NextDouble() * 360f, 0f, Space.World);
+                    ArtKit.GroundAt(clump, new Vector3(jx, -0.05f, jz));
+                    placed++;
+                }
+            }
+            Debug.Log($"[Build] Grass: {placed} clumps placed.");
         }
 
         // A shallow S-curve from the car (z -15) to the doors (z 0). Sampled by both the tree
@@ -1238,7 +1299,7 @@ namespace LastWard.EditorTools
             // one ("deadman", Sketchfab) ships both a skin and a baked Mixamo clip — the others are
             // rigged but carry no animation at all, so they could only ever T-pose. Its 4K maps are
             // capped first; it's seen in the dark, at distance.
-            ArtKit.CapTextureSize("Characters/Entity/textures", 1024);
+            ArtKit.CapTextureSize("Characters/Entity/textures", 512);
             // No-ops for glTF (gltFast uses its own importer, not ModelImporter) but harmless, and
             // keeps the path correct if the entity is ever swapped back to an FBX.
             ArtKit.PrepareAnimatedModel(EntityModelPath);
@@ -1312,7 +1373,7 @@ namespace LastWard.EditorTools
 
                 // A radio on the table, a candle beside it — both measured off the table's real top
                 // face rather than a guessed height.
-                PlaceOnTop(PlaceHorrorKitItem(parent, scratch, "Radio", 0.3f, "Radio_Tex_1024.png",
+                PlaceOnTop(PlaceHorrorKitItem(parent, scratch, "Radio", 0.3f, "RadioBake-V2.0_1024.png",
                     "M_Radio", "Radio"), table);
                 // The "Candle & Flame" model has no animation in it despite the name (zero curves),
                 // so the flame is a small flickering light rather than a moving mesh — which reads
@@ -1359,7 +1420,7 @@ namespace LastWard.EditorTools
             // Lock and key on the floor — flavour, not the record-nook puzzle. Between the west
             // cabinet (z 12.4) and the west bed (z 16.8).
             var lockProp = PlaceHorrorKitItem(parent, scratch, "LockAndKey", 0.2f,
-                "LockAndKey_Tex_1024.png", "M_LockAndKey", "Lock_", "Key");
+                "KeyBake-V2.0_1024.png", "M_LockAndKey", "Lock_", "Key");
             if (lockProp != null) ArtKit.GroundAt(lockProp, new Vector3(-4.7f, 0f, 14.6f));
 
             // Gurneys are what makes the Ward read as a hospital rather than a room with cabinets.
@@ -1478,7 +1539,11 @@ namespace LastWard.EditorTools
             var model = ArtKit.LoadModel(modelRelPath);
             if (model == null) return null;
             var go = ArtKit.Spawn(model, parent, name);
-            ArtKit.ApplyMaterial(go, ArtKit.MakeTexturedMaterial(texRelPath, materialName));
+            // Null texture means "keep the importer's own materials" — the mirror and closet are
+            // textured by AutoTexture afterwards, and asking for an empty path only produced a
+            // spurious "Texture not found" warning.
+            if (!string.IsNullOrEmpty(texRelPath))
+                ArtKit.ApplyMaterial(go, ArtKit.MakeTexturedMaterial(texRelPath, materialName));
             ArtKit.FitHeight(go, targetHeight);
             return go;
         }
@@ -1487,13 +1552,13 @@ namespace LastWard.EditorTools
         private static GameObject PlaceHorrorKitItem(Transform parent, Transform scratch, string name,
             float targetHeight, string texFile, string materialName, params string[] namePrefixes)
         {
-            var model = ArtKit.LoadModel("Props/HorrorKit/PSXHorrorKit_Default.fbx");
+            var model = ArtKit.LoadModel("Props/HorrorKitV2/HorrorKitV2.fbx");
             if (model == null) return null;
             var pack = ArtKit.Spawn(model, scratch, $"HorrorKitPack_{name}");
             var item = ArtKit.ExtractProp(pack, name, parent, namePrefixes);
             if (item == null) return null;
             ArtKit.ApplyMaterial(item, ArtKit.MakeTexturedMaterial(
-                "Props/HorrorKit/textures/" + texFile, materialName));
+                "Props/HorrorKitV2/textures/" + texFile, materialName));
             ArtKit.FitHeight(item, targetHeight);
             return item;
         }

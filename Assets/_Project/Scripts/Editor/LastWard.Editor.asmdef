@@ -1,0 +1,30 @@
+{
+    "name": "LastWard.Editor",
+    "rootNamespace": "LastWard.EditorTools",
+    "references": [
+        "LastWard.Runtime",
+        "Unity.Netcode.Runtime",
+        "Unity.Netcode.Editor",
+        "Unity.Services.Core",
+        "Unity.Services.Authentication",
+        "Unity.Services.Multiplayer",
+        "Unity.InputSystem",
+        "Unity.TextMeshPro",
+        "Unity.AI.Navigation",
+        "Unity.AI.Navigation.Editor",
+        "UnityEngine.UI",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Universal.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -789,7 +789,11 @@ namespace LastWard.EditorTools
                 return;
             }
 
-            var animator = target.GetComponent<Animator>();
+            // Search the CHILDREN too. gltFast puts the Animator — and its generated Avatar — on
+            // whichever node owns the skin, which is often a child of the instantiated root. Only
+            // checking the root meant adding a SECOND, avatar-less Animator that shadowed the real
+            // one, which is what "avatar=NONE valid=False" was reporting.
+            var animator = target.GetComponent<Animator>() ?? target.GetComponentInChildren<Animator>(true);
             if (animator == null) animator = target.AddComponent<Animator>();
             animator.runtimeAnimatorController = controller;
             // The NavMeshAgent owns movement; a clip driving the root as well would slide the model

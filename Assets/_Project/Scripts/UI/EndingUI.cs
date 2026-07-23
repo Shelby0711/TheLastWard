@@ -39,7 +39,7 @@ namespace LastWard.UI
             // Play at the local listener's position, not world origin — PlayClipAtPoint's temp
             // source is fully 3D by default, and origin could be far from wherever the player is.
             var listener = FindAnyObjectByType<AudioListener>();
-            AudioSource.PlayClipAtPoint(ProceduralSfx.FarewellSting(), listener != null ? listener.transform.position : Vector3.zero);
+            AudioSource.PlayClipAtPoint(GameSfx.Scream, listener != null ? listener.transform.position : Vector3.zero);
         }
     }
 }

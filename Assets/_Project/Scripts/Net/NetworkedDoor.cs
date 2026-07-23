@@ -21,6 +21,9 @@ namespace LastWard.Net
         [SerializeField] private float noiseRadius = 8f;
 
         private readonly NetworkVariable<bool> isOpen = new NetworkVariable<bool>();
+
+        /// <summary>Shut doors are what the Entity slams open before a kill.</summary>
+        public bool IsOpen => isOpen.Value;
         private readonly NetworkVariable<bool> locked = new NetworkVariable<bool>();
         private Quaternion closedRotation;
         private Quaternion targetRotation;
@@ -40,7 +43,8 @@ namespace LastWard.Net
             audioSource.rolloffMode = AudioRolloffMode.Linear;
             audioSource.minDistance = 1.5f;
             audioSource.maxDistance = 20f;
-            creak = ProceduralSfx.DoorCreak();
+            // Real door audio; open and close are different sounds.
+            creak = GameSfx.DoorOpen;
         }
 
         public override void OnNetworkSpawn()
@@ -65,8 +69,10 @@ namespace LastWard.Net
         private void ApplyState(bool open)
         {
             targetRotation = open ? closedRotation * Quaternion.Euler(0f, openAngle, 0f) : closedRotation;
-            // Skip the sound on the initial spawn sync; only play on actual toggles.
-            if (stateInitialized) audioSource.PlayOneShot(creak);
+            // Skip the sound on the initial spawn sync; only play on actual toggles. Opening and
+            // closing are different sounds — a door heard closing somewhere you are not is one of
+            // the cheapest sources of dread in the game.
+            if (stateInitialized) audioSource.PlayOneShot(open ? GameSfx.DoorOpen : GameSfx.DoorClose);
             stateInitialized = true;
         }
 

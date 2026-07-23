@@ -1,0 +1,23 @@
+{
+    "name": "LastWard.Runtime",
+    "rootNamespace": "LastWard",
+    "references": [
+        "Unity.Netcode.Runtime",
+        "Unity.Services.Core",
+        "Unity.Services.Authentication",
+        "Unity.Services.Multiplayer",
+        "Unity.InputSystem",
+        "Unity.TextMeshPro",
+        "Unity.AI.Navigation",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

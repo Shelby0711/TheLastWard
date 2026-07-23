@@ -31,7 +31,7 @@ namespace LastWard.Player
             audioSource.rolloffMode = AudioRolloffMode.Linear;
             audioSource.minDistance = 1.5f;
             audioSource.maxDistance = 20f;
-            creak = ProceduralSfx.DoorCreak();
+            creak = GameSfx.DoorOpen;
         }
 
         private void Update()

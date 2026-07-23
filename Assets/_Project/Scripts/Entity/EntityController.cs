@@ -35,9 +35,21 @@ namespace LastWard.Entity
         [SerializeField] private float returnSpeed = 2.2f;
 
         [Header("Senses")]
-        [SerializeField] private float visionRange = 12f;
-        [SerializeField, Range(0, 180)] private float visionHalfAngle = 55f;
-        [SerializeField] private float hearingRadius = 12f;
+        [SerializeField] private float visionRange = 16f;
+        [Tooltip("Half-angle of the vision cone. Wide on purpose — a narrow cone made it walk past " +
+            "players standing in the open, because it is only ever looking where it is going.")]
+        [SerializeField, Range(0, 180)] private float visionHalfAngle = 85f;
+        [SerializeField] private float hearingRadius = 14f;
+        [Tooltip("Inside this radius it senses a player REGARDLESS of facing or line of sight. " +
+            "This is what stops it strolling past someone pressed into a corner beside it — it is " +
+            "not a person with eyes, it is something that knows you are there.")]
+        [SerializeField] private float proximitySenseRadius = 6f;
+        [Tooltip("Meter gained per second from proximity alone, at the very edge of that radius. " +
+            "Scales up sharply as it gets closer.")]
+        [SerializeField] private float proximityFillRate = 0.35f;
+        [Tooltip("How far it can sense a player who is hiding. Much shorter — hiding works, but " +
+            "hiding in a spot it walks right past does not.")]
+        [SerializeField] private float hiddenSenseRadius = 2.2f;
         [SerializeField] private float eyeHeight = 1.5f;
 
         [Header("Timing")]
@@ -97,9 +109,21 @@ namespace LastWard.Entity
             "normal withdrawal. This is the whole value of the weapon, so it needs to be felt.")]
         [SerializeField] private float repelExtraSeconds = 12f;
 
+        [Tooltip("How far its head turns off its path while patrolling, in degrees each way.")]
+        [SerializeField] private float gazeSweepAngle = 55f;
+        [SerializeField] private float gazeSweepSpeed = 0.7f;
+
         [Header("Kill")]
         [SerializeField] private float killRange = 1.6f;
         [SerializeField] private float postKillCooldown = 4f;
+        [Tooltip("How far in front of the victim it appears before charging. Far enough that they " +
+            "see a figure, not a wall of texture.")]
+        [SerializeField] private float jumpscareStartDistance = 9f;
+        [Tooltip("Charge speed, in m/s. Far faster than a player can run — the point is that it is " +
+            "already too late.")]
+        [SerializeField] private float jumpscareChargeSpeed = 16f;
+        [Tooltip("Hard cap on the charge, so a blocked path can never leave the victim alive.")]
+        [SerializeField] private float jumpscareChargeSeconds = 1.6f;
 
         private readonly NetworkVariable<EntityState> netState =
             new NetworkVariable<EntityState>(EntityState.Patrol);
@@ -118,6 +142,7 @@ namespace LastWard.Entity
         private float chaseCommit;      // rolled per chase — how long before it may break off
         private int previousWaypoint = -1;
         private bool rushing;           // this chase came out of a stare, so it comes in fast
+        private float gazeSweepOffset;  // per-instance phase so the sweep is not a metronome
         private bool jumpscareRunning;
 
         private readonly List<Transform> players = new List<Transform>();
@@ -125,6 +150,7 @@ namespace LastWard.Entity
         private void Awake()
         {
             agent = GetComponent<NavMeshAgent>();
+            gazeSweepOffset = Random.Range(0f, Mathf.PI * 2f);
         }
 
         public override void OnNetworkSpawn()
@@ -190,6 +216,22 @@ namespace LastWard.Entity
             }
             bool engages = CanEngage && (found != null || (seen != null && topDiscovery >= 1f));
 
+            // Half-noticing someone makes it COME AND LOOK. Previously a partly-filled meter changed
+            // nothing about where it walked, so it would sense a player and carry on to its next
+            // waypoint — which is exactly what read as being ignored. Now suspicion redirects it.
+            if (seen != null && topDiscovery > 0.3f && CanEngage &&
+                (state == EntityState.Patrol || state == EntityState.Stalk || state == EntityState.Return))
+            {
+                target = seen;
+                lastKnownPos = seen.position;
+                if (state != EntityState.Investigate)
+                {
+                    stimulusPos = seen.position;
+                    hasStimulus = true;
+                    EnterState(EntityState.Investigate);
+                }
+            }
+
             // The stop-and-watch beat: it has half-noticed someone and holds their gaze before
             // deciding whether to commit. Only from the unhurried states — never mid-chase.
             if (!engages && sees && CanEngage && topDiscovery >= stareThreshold &&
@@ -241,6 +283,12 @@ namespace LastWard.Entity
                 // could not notice anyone — only the CHASE should wait, not the noticing.
                 bool visible = IsVisible(player, pns, distance);
 
+                // Proximity sense: close enough and it knows, whatever it happens to be facing.
+                // Without this the Entity is a security camera on legs — it walked past players
+                // standing in the open simply because they were not inside its cone.
+                float senseRadius = pns.IsHidden ? hiddenSenseRadius : proximitySenseRadius;
+                bool sensed = distance <= senseRadius;
+
                 if (visible)
                 {
                     // Closer reads faster, and a lit torch in a dark ward is a beacon. Deeper into
@@ -250,6 +298,13 @@ namespace LastWard.Entity
                     if (pns.FlashlightOn) rate *= flashlightDetectionMultiplier;
                     rate *= 1f + Progress;
                     current += rate * Time.deltaTime;
+                }
+                else if (sensed)
+                {
+                    // Rises faster the closer it is: at the edge it is a slow prickle, at arm's
+                    // length it is nearly instant.
+                    float closeness = 1f - Mathf.Clamp01(distance / Mathf.Max(0.01f, senseRadius));
+                    current += proximityFillRate * (0.4f + closeness * 1.6f) * (1f + Progress) * Time.deltaTime;
                 }
                 else
                 {
@@ -265,7 +320,7 @@ namespace LastWard.Entity
                 current = Mathf.Clamp01(current);
                 pns.ServerSetDiscovery(current);
 
-                if (!visible) continue;
+                if (!visible && !sensed) continue;
                 // Same "knowledge is expensive" weighting as before — the best-informed visible
                 // player wins ties, so learning the hospital's secrets makes you the hunted one.
                 float weight = 1f;
@@ -293,26 +348,60 @@ namespace LastWard.Entity
         {
             jumpscareRunning = true;
 
-            if (victim != null)
+            if (victim == null)
             {
-                // Just in front of them, at their eye line, facing them down.
-                Vector3 facing = victim.forward;
-                facing.y = 0f;
-                if (facing.sqrMagnitude < 0.01f) facing = Vector3.forward;
-                Vector3 spot = victim.position + facing.normalized * 1.5f;
-
-                if (NavMesh.SamplePosition(spot, out var hit, 3f, NavMesh.AllAreas))
-                {
-                    agent.Warp(hit.position);
-                    transform.rotation = Quaternion.LookRotation(victim.position - hit.position);
-                }
-                if (agent.isOnNavMesh) agent.isStopped = true;
-                netState.Value = EntityState.Chase;
-                GameEvents.RaiseNoiseEmitted(transform.position, 20f, NoiseSource.PuzzleInteraction);
+                jumpscareRunning = false;
+                yield break;
             }
 
-            // Long enough to register, short enough that it can't be escaped.
-            yield return new WaitForSeconds(0.45f);
+            // Placed at a DISTANCE and charged from there, rather than dropped in the player's face.
+            // Standing it at arm's length filled the screen with texture and read as a bug; the
+            // horror is watching it close that gap far faster than anything should move.
+            Vector3 facing = victim.forward;
+            facing.y = 0f;
+            if (facing.sqrMagnitude < 0.01f) facing = Vector3.forward;
+
+            Vector3 spot = victim.position + facing.normalized * jumpscareStartDistance;
+            if (NavMesh.SamplePosition(spot, out var hit, 6f, NavMesh.AllAreas))
+            {
+                agent.Warp(hit.position);
+                transform.rotation = Quaternion.LookRotation(victim.position - hit.position);
+            }
+
+            netState.Value = EntityState.Chase;
+            GameEvents.RaiseNoiseEmitted(transform.position, 20f, NoiseSource.PuzzleInteraction);
+
+            // A closed door between it and the victim gets slammed first. Where there is none — the
+            // Ward, the corridor — the charge begins immediately.
+            bool slamFirst = ClosedDoorBetween(victim.position);
+            var victimObject = victim.GetComponent<NetworkObject>();
+            PlayJumpscareClientRpc(victimObject != null ? victimObject.OwnerClientId : 0UL, slamFirst);
+            if (slamFirst) yield return new WaitForSeconds(0.55f);
+
+            // The charge. Driven directly rather than through the NavMeshAgent so nothing — a
+            // corner, an obstacle, the agent's own acceleration curve — can slow it down or stop it
+            // short. It is not pathfinding any more; it is arriving.
+            if (agent.isOnNavMesh) agent.isStopped = true;
+
+            float elapsed = 0f;
+            while (elapsed < jumpscareChargeSeconds)
+            {
+                if (victim == null) break;
+                elapsed += Time.deltaTime;
+
+                Vector3 toVictim = victim.position - transform.position;
+                toVictim.y = 0f;
+                float gap = toVictim.magnitude;
+                if (gap <= 1.1f) break;   // close enough to be on top of them
+
+                transform.position += toVictim.normalized * jumpscareChargeSpeed * Time.deltaTime;
+                transform.rotation = Quaternion.Slerp(transform.rotation,
+                    Quaternion.LookRotation(toVictim), Time.deltaTime * 12f);
+                yield return null;
+            }
+
+            // A held beat at contact — the moment it reaches you, before the screen goes.
+            yield return new WaitForSeconds(0.25f);
 
             if (victim != null && victim.TryGetComponent<PlayerNetworkState>(out var pns) && pns.IsAlive)
             {
@@ -322,6 +411,36 @@ namespace LastWard.Entity
 
             if (agent.isOnNavMesh) agent.isStopped = false;
             jumpscareRunning = false;
+        }
+
+        /// <summary>
+        /// True when a shut door stands between the Entity and a point — used to decide whether the
+        /// kill opens with a slam. Checked against door colliders specifically rather than any
+        /// geometry, so a wall does not read as a door.
+        /// </summary>
+        private bool ClosedDoorBetween(Vector3 point)
+        {
+            Vector3 from = transform.position + Vector3.up * eyeHeight;
+            Vector3 to = point + Vector3.up * 1f;
+            foreach (var hit in Physics.RaycastAll(from, (to - from).normalized, Vector3.Distance(from, to),
+                         ~0, QueryTriggerInteraction.Ignore))
+            {
+                // An open door's panel has swung aside, so it should not count even if the ray
+                // happens to clip it edge-on.
+                var door = hit.collider.GetComponentInParent<NetworkedDoor>();
+                if (door != null && !door.IsOpen) return true;
+            }
+            return false;
+        }
+
+        [ClientRpc]
+        private void PlayJumpscareClientRpc(ulong victimClientId, bool slamFirst)
+        {
+            // Only the victim gets the scare. Everyone else hears the Entity through the normal
+            // spatial audio, which is far more unsettling than sharing the jump.
+            if (NetworkManager.Singleton == null) return;
+            if (NetworkManager.Singleton.LocalClientId != victimClientId) return;
+            JumpscareUI.Instance?.Play(slamFirst);
         }
 
         /// <summary>Any living, unhidden player whose meter has filled — seen or not.</summary>
@@ -405,6 +524,10 @@ namespace LastWard.Entity
 
         private void TickPatrol(bool sees)
         {
+            // Sweeps its gaze while walking. The agent otherwise faces exactly where it is going,
+            // which made "stand still off its route" a perfect, permanent hiding strategy.
+            SweepGaze();
+
             if (sees) { EnterState(EntityState.Chase); return; }
             if (hasStimulus) { EnterState(EntityState.Investigate); return; }
             if (waypoints == null || waypoints.Length == 0) return;
@@ -471,6 +594,8 @@ namespace LastWard.Entity
         // glimpsed without it actually closing, which is where most of the dread lives.
         private void TickStalk(bool engages)
         {
+            SweepGaze();
+
             if (engages) { EnterState(EntityState.Chase); return; }
             if (hasStimulus) { EnterState(EntityState.Investigate); return; }
             if (stateTimer >= stalkDuration) { EnterState(EntityState.Patrol); return; }
@@ -520,6 +645,25 @@ namespace LastWard.Entity
             {
                 EnterState(EntityState.Withdraw);
             }
+        }
+
+        /// <summary>
+        /// Rotates the agent's facing off its direction of travel in a slow sine sweep, so its cone
+        /// covers the sides of a corridor as it moves. Applied to the transform rather than the
+        /// agent's own rotation, and only while it is not chasing — during a chase it should look
+        /// exactly where it is running.
+        /// </summary>
+        private void SweepGaze()
+        {
+            if (agent == null || !agent.isOnNavMesh) return;
+
+            Vector3 travel = agent.velocity;
+            travel.y = 0f;
+            if (travel.sqrMagnitude < 0.05f) return;
+
+            float sweep = Mathf.Sin(Time.time * gazeSweepSpeed + gazeSweepOffset) * gazeSweepAngle;
+            Quaternion look = Quaternion.LookRotation(travel.normalized) * Quaternion.Euler(0f, sweep, 0f);
+            transform.rotation = Quaternion.Slerp(transform.rotation, look, Time.deltaTime * 3f);
         }
 
         private Transform NearestPlayer()

@@ -13,8 +13,8 @@ namespace LastWard.EditorTools
     /// </summary>
     public static class ApplyRenderSettings
     {
-        private const float RenderScale = 0.8f;
-        private const float ShadowDistance = 25f;
+        private const float RenderScale = 0.65f;
+        private const float ShadowDistance = 18f;
 
         [MenuItem("The Last Ward/Apply Performance + Retro Render Settings")]
         public static void Apply()
@@ -37,6 +37,14 @@ namespace LastWard.EditorTools
                 TrySetInt(so, "m_MSAA", 1);
                 TrySetFloat(so, "m_ShadowDistance", ShadowDistance);
                 TrySetBool(so, "m_SoftShadowsSupported", false);
+                // Fewer lights considered per object, one cascade, smaller shadow atlas. The level
+                // is lit by many small point lights (the flickering tubes), so capping how many can
+                // affect a single surface matters more here than in a typical scene.
+                TrySetInt(so, "m_AdditionalLightsPerObjectLimit", 2);
+                TrySetInt(so, "m_ShadowCascadeCount", 1);
+                TrySetInt(so, "m_MainLightShadowmapResolution", 1024);
+                TrySetInt(so, "m_AdditionalLightsShadowmapResolution", 512);
+                TrySetBool(so, "m_AdditionalLightShadowsSupported", false);
                 so.ApplyModifiedProperties();
                 EditorUtility.SetDirty(asset);
                 Debug.Log($"Applied retro/perf settings to {path}");
