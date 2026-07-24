@@ -24,10 +24,10 @@ namespace LastWard.UI
         [SerializeField] private Image image;
         [Tooltip("Seconds the scare holds before the death screen takes over. Should roughly match " +
             "the Entity's charge time so the tint peaks as it arrives.")]
-        [SerializeField] private float holdSeconds = 1.6f;
+        [SerializeField] private float holdSeconds = 2.2f;
         [Tooltip("Peak opacity of the red bloom. Deliberately partial — the Entity must stay visible " +
             "through it.")]
-        [SerializeField, Range(0f, 1f)] private float maxTint = 0.45f;
+        [SerializeField, Range(0f, 1f)] private float maxTint = 0.5f;
 
         private void Awake()
         {
@@ -65,8 +65,11 @@ namespace LastWard.UI
             while (elapsed < holdSeconds)
             {
                 elapsed += Time.deltaTime;
-                // Rises as it closes, so the screen is reddest at the moment of contact.
-                group.alpha = Mathf.Clamp01(elapsed / holdSeconds) * maxTint;
+                // Held back at first, then ramped hard. The Entity has to be clearly visible
+                // charging before any tint appears — if the red comes up immediately it is all the
+                // player sees, which is exactly what went wrong before.
+                float t = Mathf.Clamp01(elapsed / holdSeconds);
+                group.alpha = Mathf.Pow(t, 2.5f) * maxTint;
                 if (image != null)
                 {
                     float shake = Mathf.Sin(elapsed * 55f) * 6f;

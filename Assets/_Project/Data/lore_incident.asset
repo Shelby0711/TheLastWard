@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: lore_incident
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: lore_incident
+  displayTitle: Incident Report (incomplete)
+  bodyText: 'Two residents reported the same figure at the end of the corridor. Their
+    descriptions do not match each other in any particular - height, dress, even
+    the number of them.
+
+
+    Both were adamant it had been standing there a long
+    time before they noticed.'
+  knowledgeValue: 1.5
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

@@ -45,6 +45,7 @@ namespace LastWard.EditorTools
             CreateWardZone();
             CreateCorridorZone();
             CreateExitRouteZone();
+            CreateFloorStairs();
             CreateZoneThreshold();
 
             EditorBuildKit.CreateBootstrapCamera(new Vector3(0f, 1.6f, -11f));
@@ -63,6 +64,9 @@ namespace LastWard.EditorTools
             EditorBuildKit.CreateConnectionUI();
             CreateObjectiveUI();
             CreateDiscoveryUI();
+            CreateLoreNotes();
+            // Corridor presence: steps, slams, crying, lights going red — none of it the Entity.
+            new GameObject("HauntingDirector").AddComponent<HauntingDirector>();
             CreateHidingSpots();
 
             // Gates the actual passage into the Ward — solving it is what the objective HUD's
@@ -121,7 +125,9 @@ namespace LastWard.EditorTools
         private static void SetGlobalAtmosphere()
         {
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.05f, 0.05f, 0.06f);
+            // Near black. The flashlight is meant to be the reason you can see anything indoors;
+            // any real ambient term makes rooms legible without it and kills the whole tension.
+            RenderSettings.ambientLight = new Color(0.012f, 0.012f, 0.016f);
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Exponential;
             RenderSettings.fogColor = new Color(0.02f, 0.02f, 0.03f);
@@ -375,9 +381,12 @@ namespace LastWard.EditorTools
                 new Vector3(-3.6f, 0f, 9.4f), 180f, new Vector3(0.9f, 0.7f, 0.7f),
                 requiredItemId: "crowbar", consumesItem: false, openPrompt: "Lever the crate open"));
 
-            points.Add(EditorBuildKit.CreateStorageContainer("Cupboard_Exterior",
+            // Searchable furniture in the Exterior, but deliberately NOT added to the fuse pool: a
+            // fuse landing out here reads as "a fuse never spawned in the Lobby", since the player is
+            // looking indoors. Both fuses must be findable inside. (It stays a red-herring cabinet.)
+            EditorBuildKit.CreateStorageContainer("Cupboard_Exterior",
                 new Vector3(-7.5f, 0f, -6.5f), 25f, new Vector3(0.95f, 1.15f, 0.55f),
-                requiredItemId: "", consumesItem: false, openPrompt: "Open the cabinet"));
+                requiredItemId: "", consumesItem: false, openPrompt: "Open the cabinet");
 
             // Under the Lobby bed — no door, just out of sight unless you crouch and look.
             EditorBuildKit.CreateUnderBedHidingSpot("Hide_Bed_Lobby",
@@ -430,7 +439,7 @@ namespace LastWard.EditorTools
             var fill = new GameObject("Lobby_FillLight").AddComponent<Light>();
             fill.type = LightType.Point;
             fill.range = 10f;
-            fill.intensity = 0.2f;
+            fill.intensity = 0.045f;
             fill.transform.position = new Vector3(0f, wallHeight - 0.3f, 5f);
         }
 
@@ -443,16 +452,26 @@ namespace LastWard.EditorTools
             const float t = 0.3f;
             Tile(EditorBuildKit.CreateBox("Ward_Floor", new Vector3(0f, -0.1f, 15f), new Vector3(10f, 0.2f, 10f)), "Textures/Floor_Stone.png", 2f);
             Tile(EditorBuildKit.CreateBox("Ward_Ceiling", new Vector3(0f, wallHeight, 15f), new Vector3(10f, 0.2f, 10f)), "Textures/Floor_Stone.png", 3f);
-            Tile(EditorBuildKit.CreateBox("Ward_Wall_E", new Vector3(5f, wallHeight / 2f, 15f), new Vector3(t, wallHeight, 10f + t)), "Textures/Wall_Stone.png", 2f);
+            // East wall in two segments, leaving a 2m doorway at z:[17,19] for the records nook.
+            // It used to be solid, with the nook door floating a metre away inside the room filling
+            // nothing and opening onto a wall.
+            Tile(EditorBuildKit.CreateBox("Ward_Wall_E_S", new Vector3(5f, wallHeight / 2f, 13.5f), new Vector3(t, wallHeight, 7f + t)), "Textures/Wall_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Ward_Wall_E_N", new Vector3(5f, wallHeight / 2f, 19.5f), new Vector3(t, wallHeight, 1f)), "Textures/Wall_Stone.png", 2f);
             Tile(EditorBuildKit.CreateBox("Ward_Wall_W", new Vector3(-5f, wallHeight / 2f, 15f), new Vector3(t, wallHeight, 10f + t)), "Textures/Wall_Stone.png", 2f);
-            // North wall in two segments, leaving x:[-1.5,1.5] open into the Corridor.
-            Tile(EditorBuildKit.CreateBox("Ward_Wall_N_Left", new Vector3(-3.25f, wallHeight / 2f, 20f), new Vector3(3.5f, wallHeight, t)), "Textures/Wall_Stone.png", 2f);
-            Tile(EditorBuildKit.CreateBox("Ward_Wall_N_Right", new Vector3(3.25f, wallHeight / 2f, 20f), new Vector3(3.5f, wallHeight, t)), "Textures/Wall_Stone.png", 2f);
+            // North wall in two segments, leaving a standard 2m doorway at x:[-1,1] into the
+            // Corridor — filled by Door_ToCorridor. It used to be a 3m hole with nothing in it,
+            // which is why the way onward read as "wide open" while the only door in the Ward sat
+            // off on a side wall.
+            // Centres are +-3 with width 4, so the segments span x:[-5,-1] and x:[1,5] and the gap is
+            // exactly the door's 2m. Centring them at +-3.5 (as they briefly were) spans [-5.5,-1.5]
+            // and [1.5,5.5] — a 3m hole with a 2m door in it, leaving 0.5m open either side.
+            Tile(EditorBuildKit.CreateBox("Ward_Wall_N_Left", new Vector3(-3f, wallHeight / 2f, 20f), new Vector3(4f, wallHeight, t)), "Textures/Wall_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Ward_Wall_N_Right", new Vector3(3f, wallHeight / 2f, 20f), new Vector3(4f, wallHeight, t)), "Textures/Wall_Stone.png", 2f);
 
             var fill = new GameObject("Ward_FillLight").AddComponent<Light>();
             fill.type = LightType.Point;
             fill.range = 10f;
-            fill.intensity = 0.15f; // dimmer than Lobby — "more aggressive Entity behavior" per the plan
+            fill.intensity = 0.03f; // dimmer than Lobby — "more aggressive Entity behavior" per the plan
             fill.transform.position = new Vector3(0f, wallHeight - 0.3f, 15f);
         }
 
@@ -500,11 +519,13 @@ namespace LastWard.EditorTools
             // Side rooms branching EAST off the corridor. Each is a distinct texture set so the run
             // doesn't read as one repeated box, and each is a genuine dead end — somewhere to be
             // caught, and somewhere worth searching.
-            BuildSideRoom("Room_Storage", new Vector3(7.5f, 0f, 24f), new Vector2(7f, 6f),
+            // Centred far enough out that the room's door wall clears the corridor wall at x=4.
+            // At x=7.5 with a 7m width the two were exactly coplanar and z-fought.
+            BuildSideRoom("Room_Storage", new Vector3(9.5f, 0f, 24f), new Vector2(7f, 6f),
                 "Textures/H_Brick.png", "Textures/H_Floor_Room.png", new Color(1f, 0.8f, 0.55f));
-            BuildSideRoom("Room_Washroom", new Vector3(7.5f, 0f, 34f), new Vector2(7f, 6f),
+            BuildSideRoom("Room_Washroom", new Vector3(9.5f, 0f, 34f), new Vector2(7f, 6f),
                 "Textures/Wall_Tile.png", "Textures/Floor_Tile.png", new Color(0.7f, 0.95f, 1f));
-            BuildSideRoom("Room_Records", new Vector3(-8.5f, 0f, 41f), new Vector2(6f, 6f),
+            BuildSideRoom("Room_Records", new Vector3(-9.5f, 0f, 41f), new Vector2(6f, 6f),
                 "Textures/H_Wall_Room.png", "Textures/H_Stone.png", new Color(1f, 0.55f, 0.3f));
 
             // Failing tubes down the length of the corridor. Alternating sodium-yellow and a sick
@@ -514,11 +535,131 @@ namespace LastWard.EditorTools
             for (int i = 0; i < tubeZ.Length; i++)
             {
                 bool red = i >= tubeZ.Length - 2;
+                // The red ones are cranked and given a far longer reach: the end of the corridor
+                // should visibly bleed red across the walls and floor, not just show a red bulb.
+                // Kept saturated rather than washing toward white.
                 AddFlickeringTube(new Vector3(0f, wallHeight - 0.25f, tubeZ[i]),
-                    red ? new Color(1f, 0.22f, 0.16f) : new Color(1f, 0.86f, 0.55f),
-                    red ? 0.5f : 0.75f);
+                    red ? new Color(1f, 0.10f, 0.06f) : new Color(1f, 0.86f, 0.55f),
+                    red ? 2.2f : 0.62f,
+                    red ? 17f : 9f);
             }
-            AddFlickeringTube(new Vector3(-5.25f, wallHeight - 0.25f, 30.5f), new Color(1f, 0.25f, 0.18f), 0.4f);
+            AddFlickeringTube(new Vector3(-5.25f, wallHeight - 0.25f, 30.5f),
+                new Color(1f, 0.12f, 0.07f), 1.8f, 15f);
+        }
+
+        /// <summary>
+        /// A flight of steps. Built from boxes rather than an imported mesh for the same reason the
+        /// rest of the level is: the tread height has to line up exactly with what the CharacterController
+        /// can step over, and an art asset gives you whatever the artist happened to model.
+        ///
+        /// <paramref name="rise"/> is per-step and may be negative to descend. Steps march along +Z
+        /// from <paramref name="start"/>, which is the FRONT EDGE of the first tread at floor level.
+        /// </summary>
+        private static void BuildStaircase(string name, Vector3 start, int steps, float rise,
+            float run, float width, string stepTex, string wallTex)
+        {
+            var root = new GameObject(name).transform;
+            const float h = 3f;
+            const float t = 0.3f;
+
+            for (int i = 0; i < steps; i++)
+            {
+                float y = start.y + rise * (i + 1);
+                float z = start.z + run * (i + 0.5f);
+                // Each tread is a solid block down to the previous step, so there is no gap to fall
+                // through and the collider is one clean box per step.
+                float slabH = Mathf.Abs(rise) + 0.05f;
+                var step = EditorBuildKit.CreateBox($"{name}_Step{i:00}",
+                    new Vector3(start.x, y - slabH / 2f, z),
+                    new Vector3(width, slabH, run));
+                Tile(step, stepTex, 1.5f);
+                step.transform.SetParent(root, true);
+            }
+
+            // Side walls so the flight reads as a stairwell and nobody walks off the edge.
+            float midZ = start.z + run * steps / 2f;
+            float midY = start.y + rise * steps / 2f;
+            float span = Mathf.Abs(rise) * steps + h;
+            foreach (float sx in new[] { -1f, 1f })
+            {
+                var w = EditorBuildKit.CreateBox($"{name}_Wall{(sx < 0 ? "W" : "E")}",
+                    new Vector3(start.x + sx * (width / 2f + t / 2f), midY, midZ),
+                    new Vector3(t, span, run * steps + t));
+                Tile(w, wallTex, 2f);
+                w.transform.SetParent(root, true);
+            }
+        }
+
+        /// <summary>
+        /// The stair junction, built as its own landing BEYOND the Exit Route (z 54..60) rather than
+        /// inside it. That is deliberate: a descending flight needs a hole in the floor it drops
+        /// through, and the Exit Route floor is a single slab -- cutting it would mean rebuilding
+        /// that whole zone. This landing owns its own floor and ceiling, so both openings are simply
+        /// gaps left between segments, exactly how every doorway in this level is made.
+        ///
+        /// One flight climbs to the second floor, one drops to the basement. Only the stairs exist
+        /// so far; both destinations (and the corridor Entity) come next session.
+        /// </summary>
+        private static void CreateFloorStairs()
+        {
+            const float wallHeight = 3f;
+            const float t = 0.3f;
+            const int steps = 16;
+            const float run = 0.25f;
+            const float riseStep = 0.2f;        // 16 x 0.2 = 3.2m, one storey
+            const float z0 = 54.6f;             // front edge of the first tread
+            const float z1 = z0 + run * steps;  // 58.6 -- back of both flights
+
+            // Landing floor, with a hole for the DESCENDING flight at x[-3.4,-0.6] z[54.6,58.6].
+            Tile(EditorBuildKit.CreateBox("Stairs_Floor_W", new Vector3(-3.7f, -0.1f, 57f), new Vector3(0.6f, 0.2f, 6f)), "Textures/Floor_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Stairs_Floor_E", new Vector3(1.7f, -0.1f, 57f), new Vector3(4.6f, 0.2f, 6f)), "Textures/Floor_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Stairs_Floor_S", new Vector3(-2f, -0.1f, 54.3f), new Vector3(2.8f, 0.2f, 0.6f)), "Textures/Floor_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Stairs_Floor_N", new Vector3(-2f, -0.1f, 59.3f), new Vector3(2.8f, 0.2f, 1.4f)), "Textures/Floor_Stone.png", 2f);
+
+            // Landing ceiling, with a matching hole for the ASCENDING flight at x[0.6,3.4].
+            Tile(EditorBuildKit.CreateBox("Stairs_Ceil_W", new Vector3(-2.3f, wallHeight, 57f), new Vector3(3.4f, 0.2f, 6f)), "Textures/Floor_Stone.png", 3f);
+            Tile(EditorBuildKit.CreateBox("Stairs_Ceil_E", new Vector3(3.7f, wallHeight, 57f), new Vector3(0.6f, 0.2f, 6f)), "Textures/Floor_Stone.png", 3f);
+            Tile(EditorBuildKit.CreateBox("Stairs_Ceil_S", new Vector3(2f, wallHeight, 54.3f), new Vector3(2.8f, 0.2f, 0.6f)), "Textures/Floor_Stone.png", 3f);
+            Tile(EditorBuildKit.CreateBox("Stairs_Ceil_N", new Vector3(2f, wallHeight, 59.3f), new Vector3(2.8f, 0.2f, 1.4f)), "Textures/Floor_Stone.png", 3f);
+
+            // Landing shell. The east side and the back run tall, to enclose the stairwell that
+            // punches up through the ceiling.
+            Tile(EditorBuildKit.CreateBox("Stairs_Wall_W", new Vector3(-4f, wallHeight / 2f, 57f), new Vector3(t, wallHeight, 6f + t)), "Textures/Wall_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Stairs_Wall_E", new Vector3(4f, wallHeight / 2f + 1.6f, 57f), new Vector3(t, wallHeight + 3.2f, 6f + t)), "Textures/Wall_Tile.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Stairs_Wall_N", new Vector3(0f, wallHeight / 2f + 1.6f, 60f), new Vector3(8f + t, wallHeight + 3.2f, t)), "Textures/Wall_Stone.png", 2f);
+
+            // DOWN to the basement, west. Cold stone -- this part is older than the rest of it.
+            BuildStaircase("Stairs_Basement", new Vector3(-2f, 0f, z0), steps, -riseStep, run, 2.6f,
+                "Textures/Floor_Stone.png", "Textures/Wall_Stone.png");
+
+            // UP to the second floor, east. Tiled like the Lobby -- this part was still in use.
+            BuildStaircase("Stairs_SecondFloor", new Vector3(2f, 0f, z0), steps, riseStep, run, 2.6f,
+                "Textures/Floor_Tile.png", "Textures/Wall_Tile.png");
+
+            // Landings so neither flight stops in mid-air. Next session these become the openings
+            // into the basement and the second floor.
+            Tile(EditorBuildKit.CreateBox("Stairs_Basement_Landing",
+                new Vector3(-2f, -riseStep * steps - 0.1f, z1 + 1.2f), new Vector3(2.6f, 0.2f, 2.4f)),
+                "Textures/Floor_Stone.png", 2f);
+            Tile(EditorBuildKit.CreateBox("Stairs_SecondFloor_Landing",
+                new Vector3(2f, riseStep * steps - 0.1f, z1 + 1.2f), new Vector3(2.6f, 0.2f, 2.4f)),
+                "Textures/Floor_Tile.png", 2f);
+
+            // Divider between the flights, tall enough to span both stairwells.
+            Tile(EditorBuildKit.CreateBox("Stairs_Divider",
+                new Vector3(0f, wallHeight / 2f, (z0 + z1) / 2f),
+                new Vector3(0.3f, wallHeight + 3.2f, run * steps + 2.4f)),
+                "Textures/Wall_Stone.png", 2f);
+
+            // Signage, so the choice is legible in the dark rather than a coin flip.
+            EditorBuildKit.CreateNoteProp("Note_StairSign", new Vector3(0f, 0f, 54.2f),
+                "Assets/_Project/Data/StairSignClue.asset", "stair_sign", "Stairwell Sign",
+                "DOWN -- PLANT, MORGUE, RECORDS STORE.   UP -- WARD TWO, THEATRE, STAFF.   " +
+                "Someone has scratched through the second line, over and over, until the paint gave.",
+                2f);
+
+            AddDimLight(new Vector3(-2f, wallHeight - 0.4f, 55.5f), 0.10f);
+            AddDimLight(new Vector3(2f, wallHeight - 0.4f, 55.5f), 0.16f);
         }
 
         // Exit Route spans x:[-4,4], z:[44,54] (matching the Corridor's width, so they meet with no
@@ -554,8 +695,11 @@ namespace LastWard.EditorTools
         /// Each room takes its own wall/floor textures and its own light colour, so three rooms
         /// built from the same code still read as three different places.
         /// </summary>
+        /// <param name="hostWallX">X of the wall this room connects back to. Defaults to the
+        /// Service Corridor's wall; the Ward's is further out, and a hardcoded value made the
+        /// connecting passage stop short of the doorway.</param>
         private static void BuildSideRoom(string name, Vector3 centre, Vector2 size,
-            string wallTex, string floorTex, Color lightColor)
+            string wallTex, string floorTex, Color lightColor, float hostWallX = 4f)
         {
             const float h = 3f;
             const float t = 0.3f;
@@ -583,7 +727,7 @@ namespace LastWard.EditorTools
             Tile(EditorBuildKit.CreateBox($"{name}_Wall_Door_B", new Vector3(doorX, h / 2f, centre.z + segOffset), new Vector3(t, h, segment)), wallTex, 2f);
 
             // Short connecting passage from the corridor wall to the room's doorway.
-            float corridorEdge = opensWest ? 4f : -4f;
+            float corridorEdge = opensWest ? hostWallX : -hostWallX;
             float passLength = Mathf.Abs(doorX - corridorEdge);
             if (passLength > 0.2f)
             {
@@ -594,7 +738,9 @@ namespace LastWard.EditorTools
                 Tile(EditorBuildKit.CreateBox($"{name}_Pass_N", new Vector3(passX, h / 2f, centre.z + doorHalf), new Vector3(passLength, h, t)), wallTex, 2f);
             }
 
-            AddFlickeringTube(new Vector3(centre.x, h - 0.25f, centre.z), lightColor, 0.5f);
+            // Barely a glow. Side rooms are rooms - you search them by torchlight; the corridor
+            // is the only place lit well enough to walk through without one.
+            AddFlickeringTube(new Vector3(centre.x, h - 0.25f, centre.z), lightColor, 0.14f);
             DressSideRoom(name, centre, size);
         }
 
@@ -648,9 +794,21 @@ namespace LastWard.EditorTools
             // it is facing away from the door.
             if (name == "Room_Washroom")
             {
+                // A washroom mirror hangs ON the wall. PlaceProp grounds props on the floor, which
+                // stood a 1.7m mirror up out of the tiles like a wardrobe — so it's placed, then
+                // lifted to eye level and pushed flush against the inside face of the north wall
+                // (wall plane at centre.z + size.y/2, 0.3 thick, so its inner surface is 0.15 in).
+                const float wallT = 0.3f;
                 var mirror = PlaceProp(parent, "Props/Mirror/scene.gltf", null, null,
-                    "Mirror", 1.7f, centre + new Vector3(0f, 0f, size.y / 2f - 0.4f), 180f);
-                if (mirror != null) ArtKit.AutoTexture(mirror, "Props/Mirror/textures", alphaClip: false, pointFilter: false);
+                    "Mirror", 0.95f, centre + new Vector3(0f, 0f, size.y / 2f - 0.4f), 180f);
+                if (mirror != null)
+                {
+                    mirror.transform.position = new Vector3(
+                        centre.x,
+                        1.15f,                                              // bottom edge at chest height
+                        centre.z + size.y / 2f - wallT / 2f - 0.06f);       // just proud of the wall face
+                    ArtKit.AutoTexture(mirror, "Props/Mirror/textures", alphaClip: false, pointFilter: false);
+                }
             }
 
             // Batteries for the torch, one per room, on the floor against a wall.
@@ -689,14 +847,14 @@ namespace LastWard.EditorTools
         }
 
         /// <summary>A ceiling tube that buzzes, dips and occasionally dies outright.</summary>
-        private static Light AddFlickeringTube(Vector3 position, Color color, float intensity)
+        private static Light AddFlickeringTube(Vector3 position, Color color, float intensity, float range = 9f)
         {
             var go = new GameObject("CeilingTube");
             go.transform.position = position;
 
             var light = go.AddComponent<Light>();
             light.type = LightType.Point;
-            light.range = 9f;
+            light.range = range;
             light.intensity = intensity;
             light.color = color;
             light.shadows = LightShadows.None;   // several of these with shadows is not worth the cost
@@ -708,7 +866,7 @@ namespace LastWard.EditorTools
             var housing = EditorBuildKit.CreateBox("TubeHousing", position + new Vector3(0f, 0.14f, 0f),
                 new Vector3(0.9f, 0.08f, 0.16f));
             EditorBuildKit.SetMaterial(housing, EditorBuildKit.MakeEmissive(
-                new Color(0.06f, 0.06f, 0.06f), color * 0.35f));
+                new Color(0.06f, 0.06f, 0.06f), color * 1.6f));
             UnityObject.DestroyImmediate(housing.GetComponent<Collider>());
             housing.transform.SetParent(go.transform);
             return light;
@@ -774,10 +932,26 @@ namespace LastWard.EditorTools
         // self-contained records nook rather than the main path, since Service Corridor isn't built yet.
         private static void CreateRecordCodePuzzleInWard()
         {
-            var door = EditorBuildKit.CreateNetworkedDoor("Door_RecordsNook", new Vector3(4f, 0f, 18f));
+            // The records nook is now an ORDINARY side room — it holds the clues, so locking it
+            // behind the code those clues give you was circular. Hinged on the south edge of the
+            // 2m gap in the east wall at x=5, swinging across Z since it sits in a side wall.
+            var nookDoor = EditorBuildKit.CreateNetworkedDoor("Door_RecordsNook", new Vector3(5f, 0f, 17f),
+                width: 2f, height: 3f, startLocked: false);
+            nookDoor.transform.rotation = Quaternion.Euler(0f, -90f, 0f);
 
-            var keypadGO = EditorBuildKit.CreateBox("Keypad", new Vector3(4f, 1f, 17.6f), new Vector3(0.3f, 0.3f, 0.1f));
-            EditorBuildKit.SetMaterial(keypadGO, EditorBuildKit.MakeEmissive(new Color(0.1f, 0.1f, 0.15f), new Color(0.2f, 0.5f, 0.6f)));
+            // The nook itself. Without a room behind it the door opened onto solid wall.
+            BuildSideRoom("Room_RecordsNook", new Vector3(9f, 0f, 18f), new Vector2(5f, 5f),
+                "Textures/H_Wall_Room.png", "Textures/Floor_Stone.png", new Color(0.9f, 0.75f, 0.5f),
+                hostWallX: 5f);
+
+            // The code now gates the WAY ONWARD, not a side cupboard: the Ward's north doorway into
+            // the Service Corridor. A puzzle the player can walk around isn't a gate, and it left
+            // the main path standing open while the only locked door sat on a side wall.
+            var door = EditorBuildKit.CreateNetworkedDoor("Door_ToCorridor", new Vector3(-1f, 0f, 20f),
+                width: 2f, height: 3f);
+
+            // Mounted on the Ward's north wall beside that doorway, facing back into the Ward.
+            var keypadGO = EditorBuildKit.CreateKeypad("Keypad", new Vector3(1.7f, 1.35f, 19.8f), 180f);
             keypadGO.AddComponent<Unity.Netcode.NetworkObject>();
             var puzzle = keypadGO.AddComponent<LastWard.Puzzles.RecordCodePuzzle>();
             EditorBuildKit.SetRef(puzzle, "gatedDoor", door);
@@ -839,6 +1013,7 @@ namespace LastWard.EditorTools
             EditorBuildKit.SetInt(trigger, "stageOnEnter", (int)ObjectiveStage.Lobby);
         }
 
+
         private static void CreateDiscoveryUI()
         {
             var canvasGO = GameObject.Find("Canvas");
@@ -851,6 +1026,76 @@ namespace LastWard.EditorTools
             EditorBuildKit.CreateHidingOverlayUI(canvasGO.transform);
             EditorBuildKit.CreateControlsPanelUI(canvasGO.transform);
             EditorBuildKit.CreateJumpscareUI(canvasGO.transform);
+        }
+
+        /// <summary>
+        /// Notes stashed in containers and under beds — the game's only voice. Three rules:
+        ///
+        /// 1. <b>Never name it.</b> Every writer describes symptoms, never a creature. Nobody who
+        ///    wrote these understood what they were dealing with, and several are plainly wrong.
+        /// 2. <b>Never agree on what this building was.</b> One writes about patients, another about
+        ///    guests, another about residents and a duty roster. The player should not be able to
+        ///    settle whether this was a hospital, a care home or a hotel until very late.
+        /// 3. <b>Contradict each other.</b> Two notes disagreeing is worth more than either being
+        ///    informative, because it makes the player decide who to believe.
+        ///
+        /// Placed in the same container and under-bed spots the items use, so reading the lore and
+        /// finding the tools are the same activity.
+        /// </summary>
+        private static void CreateLoreNotes()
+        {
+            var spots = new List<Vector3>
+            {
+                new Vector3(-4.4f, 0.55f, 7.4f),    // Lobby cupboard
+                new Vector3(2.5f, 0.12f, 2.8f),     // under the Lobby bed
+                new Vector3(-4.5f, 0.55f, 12.4f),   // Ward cabinet
+                new Vector3(4.5f, 0.55f, 15.4f),    // Ward cabinet
+                new Vector3(-3.5f, 0.12f, 16.8f),   // under a Ward bed
+                new Vector3(9.5f, 0.5f, 24f),       // Storage room
+                new Vector3(9.5f, 0.5f, 34f),       // Washroom
+                new Vector3(-9.5f, 0.5f, 41f),      // Records room
+            };
+
+            (string id, string title, string body)[] notes =
+            {
+                ("lore_intake", "Intake Sheet (partial)",
+                 "Room 6 asked again about the night staff. Told her the same as before: there is no night staff, we are a small facility and the doors lock at eight.\n\nShe said she wasn't asking about staff."),
+
+                ("lore_maintenance", "Maintenance Log",
+                 "Third callout this month for the corridor lights. Wiring tests clean every time.\n\nThey only fail on the east run. Never the wards. I have stopped writing down what colour."),
+
+                ("lore_guest", "Guest Comment Card",
+                 "Lovely stay otherwise, but the walls are terribly thin - we could hear the family in the next room walking about at all hours.\n\n(On the reverse, a different hand: 'There is no next room.')"),
+
+                ("lore_roster", "Duty Roster - week of the 14th",
+                 "Names scratched out down the whole column. One left, circled twice:\n\n'Whoever is on nights - do NOT do the round alone. Not because of the residents.'"),
+
+                ("lore_letter", "Unsent Letter",
+                 "I keep meaning to tell you what it is like here but every time I sit down it sounds mad written out.\n\nIt is not a person. I want to be clear about that, because the others keep saying a person. A person would have got tired by now."),
+
+                ("lore_referral", "Referral Note",
+                 "Transferred from the county home. Records incomplete - no admission date, no next of kin.\n\nQuery with administration: we have no record of this facility ever being a county home."),
+
+                ("lore_incident", "Incident Report (incomplete)",
+                 "Two residents reported the same figure at the end of the corridor. Their descriptions do not match each other in any particular - height, dress, even the number of them.\n\nBoth were adamant it had been standing there a long time before they noticed."),
+
+                ("lore_last", "Torn Page",
+                 "- and it is not the one in the wards. That one wants to be seen.\n\nWhatever is below does not, and I think that is the difference that matters."),
+            };
+
+            // Shuffled so the same note is not in the same drawer every run.
+            for (int i = spots.Count - 1; i > 0; i--)
+            {
+                int j = Random.Range(0, i + 1);
+                (spots[i], spots[j]) = (spots[j], spots[i]);
+            }
+
+            for (int i = 0; i < notes.Length && i < spots.Count; i++)
+            {
+                var entry = notes[i];
+                EditorBuildKit.CreateNoteProp($"Note_{entry.id}", spots[i],
+                    $"Assets/_Project/Data/{entry.id}.asset", entry.id, entry.title, entry.body, 1.5f);
+            }
         }
 
         // Somewhere to break line of sight in each zone the Entity patrols, so the discovery meter
@@ -958,7 +1203,10 @@ namespace LastWard.EditorTools
         // the first attempt.
         private const string ArtRootName = "ArtPass";
         private const string ScratchName = "~ArtScratch";
-        private const string EntityModelPath = "Characters/Entity/scene.gltf";
+        // Mesh + skeleton + all four Watcher actions in ONE file. The clips used to live in separate
+        // skeleton-only .glb files and never bound to this model's avatar, which is why the Entity
+        // stood frozen in its bind pose with no idle, walk or run playing at all.
+        private const string EntityModelPath = "Characters/Entity/Watcher_Entity.glb";
 
         [MenuItem("The Last Ward/Reapply M8 Art Pass")]
         public static void ReapplyArtPass()
@@ -1015,7 +1263,7 @@ namespace LastWard.EditorTools
             var light = go.AddComponent<Light>();
             light.type = LightType.Directional;
             light.color = new Color(0.55f, 0.62f, 0.9f);
-            light.intensity = 0.3f;
+            light.intensity = 0.11f;
             // Hard shadows, not soft. Soft shadows on a directional light mean a filtered lookup
             // over the whole scene every frame, and this one covers the entire exterior including
             // every tree. Hard shadows keep the interiors dark (which is what the shadow is FOR)
@@ -1312,12 +1560,14 @@ namespace LastWard.EditorTools
             // Its pivot sits at its CENTRE rather than its feet, so the floor is the bottom of its
             // bounds, measured here before the renderer is switched off. Grounding the model on the
             // pivot instead is what left it hovering a metre off the floor.
+            // The capsule is NOT hidden yet. It used to be switched off here, before the model was
+            // even spawned — so any failure after this point (missing clip, bad avatar, collapsed
+            // skinning) left the Entity with nothing rendering at all. An invisible Entity that can
+            // still chase and kill is the single worst failure this scene can ship, so the fallback
+            // stays visible until a real, non-degenerate skinned mesh is confirmed below.
             float floorY = entity.transform.position.y;
-            if (entity.TryGetComponent<Renderer>(out var capsule))
-            {
-                floorY = capsule.bounds.min.y;
-                capsule.enabled = false;
-            }
+            entity.TryGetComponent<Renderer>(out var capsule);
+            if (capsule != null) floorY = capsule.bounds.min.y;
 
             var visual = ArtKit.Spawn(model, entity.transform, "Visual");
             // The capsule is scaled (0.9, 1.15, 0.9); inherited unchanged that would squash the
@@ -1330,12 +1580,42 @@ namespace LastWard.EditorTools
             ArtKit.AutoTexture(visual, "Characters/Entity/textures", alphaClip: false, pointFilter: false);
             // Without an Animator (or Animation, for a legacy clip) driving it, the model just
             // stands in its bind pose — the T-shape.
-            ArtKit.EnsureLoopingAnimator(visual, EntityModelPath, "AC_Entity");
+            // Full state machine from the four hand-authored Watcher clips (idle / patrol / run /
+            // catch), retargeted onto the mesh model's avatar. Replaces the old single sped-up walk.
+            ArtKit.SetupEntityAnimator(visual, EntityModelPath, "AC_Entity",
+                "Idle", "Patrol", "Run", "Catch");
 
             // Ties playback rate to real travel speed, so the feet stop sliding.
             var driver = entity.GetComponent<LastWard.Entity.EntityAnimationDriver>();
             if (driver == null) driver = entity.AddComponent<LastWard.Entity.EntityAnimationDriver>();
             EditorBuildKit.SetRef(driver, "animator", visual.GetComponentInChildren<Animator>());
+
+            // Only NOW is the placeholder capsule retired, and only if the swapped-in model is
+            // actually drawable: at least one enabled renderer with real volume. A collapsed or
+            // zero-scale skinned mesh counts as a failure and keeps the capsule, so the Entity is
+            // always something you can see coming.
+            var renderers = visual.GetComponentsInChildren<Renderer>(true);
+            var bounds = new Bounds(entity.transform.position, Vector3.zero);
+            bool drawable = false;
+            foreach (var r in renderers)
+            {
+                if (!r.enabled) continue;
+                if (!drawable) { bounds = r.bounds; drawable = true; }
+                else bounds.Encapsulate(r.bounds);
+            }
+            drawable &= bounds.size.y > 0.3f && bounds.size.x > 0.05f;
+
+            if (drawable)
+            {
+                if (capsule != null) capsule.enabled = false;
+                Debug.Log($"[ArtPass] Entity visual OK — {renderers.Length} renderer(s), bounds size {bounds.size}. Capsule hidden.");
+            }
+            else
+            {
+                Debug.LogError("[ArtPass] Entity model did NOT produce a drawable mesh " +
+                    $"({renderers.Length} renderer(s), bounds size {bounds.size}) — keeping the placeholder " +
+                    "capsule visible so the Entity is never invisible. Check the Watcher clips/avatar.");
+            }
         }
 
         // --- interior set dressing ---
@@ -1511,6 +1791,7 @@ namespace LastWard.EditorTools
             var trigger = pipe.AddComponent<BoxCollider>();
             trigger.size = new Vector3(0.35f, 0.35f, 0.95f);
 
+            pipe.AddComponent<LastWard.Core.ProximityGlow>();
             pipe.AddComponent<Unity.Netcode.NetworkObject>();
             var pickup = pipe.AddComponent<LastWard.Net.NetworkedPickup>();
             EditorBuildKit.SetString(pickup, "itemId", "pipe");

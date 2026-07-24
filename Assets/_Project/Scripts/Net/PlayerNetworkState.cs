@@ -23,6 +23,10 @@ namespace LastWard.Net
             new NetworkVariable<float>(0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
         private readonly NetworkVariable<bool> flashlightOn =
             new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+        // Replicated because the Entity's senses run on the SERVER and need to know whether this
+        // player is crouching. Owner-written, since only the owner runs the motor.
+        private readonly NetworkVariable<bool> crouching =
+            new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
         private readonly NetworkVariable<bool> alive = new NetworkVariable<bool>(true); // server-write
 
         // How close the Entity is to having found this player, 0..1. The Entity (server) is the only
@@ -31,6 +35,10 @@ namespace LastWard.Net
         // Set while the player is inside a HidingSpot. Server-written so the Entity's own senses and
         // every client's view of it agree.
         private readonly NetworkVariable<bool> hidden = new NetworkVariable<bool>(false);
+        // Set while the Entity has physically caught this player. Movement and look input are
+        // suspended for its duration - the catch is a held beat, and a victim who can simply walk
+        // out of it is not caught at all.
+        private readonly NetworkVariable<bool> held = new NetworkVariable<bool>(false);
 
         public Transform CameraPivot => cameraPivot;
         public float Pitch => pitch.Value;
@@ -40,8 +48,22 @@ namespace LastWard.Net
         // here actually wants, so `new` keeps that behaviour rather than silently changing it.
         public new bool IsLocalPlayer => IsOwner;
         public bool FlashlightOn => flashlightOn.Value;
+        public bool IsCrouching => crouching.Value;
+
+        /// <summary>Pushed by the owner's motor each frame it changes.</summary>
+        public void SetCrouching(bool value)
+        {
+            if (IsOwner && crouching.Value != value) crouching.Value = value;
+        }
         public float Discovery => discovery.Value;
         public bool IsHidden => hidden.Value;
+        public bool IsHeld => held.Value;
+
+        /// <summary>Server-only. The Entity takes hold of this player for the catch sequence.</summary>
+        public void ServerSetHeld(bool value)
+        {
+            if (IsServer) held.Value = value;
+        }
 
         public void ServerSetDiscovery(float value)
         {

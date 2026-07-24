@@ -111,6 +111,9 @@ namespace LastWard.EditorTools
             SetRef(netState, "cameraPivot", pivot.transform);
             SetRef(netState, "flashlight", flashlight);
             if (flashlightModel != null) SetRef(netState, "flashlightModel", flashlightModel);
+            // Wired here rather than beside the motor's other refs: netState does not exist yet at
+            // that point in this method.
+            SetRef(motor, "netState", netState);
 
             var flashlightController = root.AddComponent<FlashlightController>();
             SetRef(flashlightController, "input", input);
@@ -424,6 +427,57 @@ namespace LastWard.EditorTools
         /// <param name="standaloneModel">Art-relative path to a model that IS the item on its own
         /// (e.g. "Props/Crowbar/scene.gltf"), textured from <paramref name="standaloneTextures"/>.
         /// Takes precedence over carving one out of the horror kit.</param>
+        /// <summary>
+        /// A wall-mounted keypad: backing plate, recessed dark face, a lit display strip and a 3x4
+        /// grid of keys. Built from primitives rather than imported, for the same reason the fuse
+        /// box is — every part sits exactly where it is put, and the collider the interaction ray
+        /// needs stays on the root.
+        ///
+        /// Returns the root, which carries the collider and takes the puzzle components.
+        /// </summary>
+        public static GameObject CreateKeypad(string name, Vector3 position, float yaw)
+        {
+            var root = new GameObject(name);
+            root.transform.position = position;
+            root.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+
+            var body = MakeMaterial(new Color(0.16f, 0.16f, 0.17f));
+            var face = MakeMaterial(new Color(0.07f, 0.07f, 0.08f));
+            var key = MakeMaterial(new Color(0.32f, 0.32f, 0.33f));
+            var screen = MakeEmissive(new Color(0.05f, 0.12f, 0.1f), new Color(0.15f, 0.85f, 0.45f));
+
+            const float w = 0.26f, h = 0.36f, d = 0.07f;
+
+            var plate = AddPanel(root.transform, "Plate", new Vector3(0f, 0f, 0f), new Vector3(w, h, d), body);
+            plate.transform.SetParent(root.transform, false);
+
+            AddPanel(root.transform, "Face", new Vector3(0f, -0.02f, -d / 2f - 0.005f),
+                new Vector3(w - 0.04f, h - 0.06f, 0.01f), face);
+
+            // Display strip across the top.
+            AddPanel(root.transform, "Display", new Vector3(0f, h / 2f - 0.06f, -d / 2f - 0.012f),
+                new Vector3(w - 0.07f, 0.055f, 0.008f), screen);
+
+            // 3 x 4 key grid.
+            for (int row = 0; row < 4; row++)
+            {
+                for (int col = 0; col < 3; col++)
+                {
+                    var k = AddPanel(root.transform, $"Key_{row}{col}",
+                        new Vector3((col - 1) * 0.062f, 0.06f - row * 0.058f, -d / 2f - 0.014f),
+                        new Vector3(0.05f, 0.045f, 0.012f), key);
+                    UnityObject.DestroyImmediate(k.GetComponent<Collider>());
+                }
+            }
+
+            // One collider on the root is what the interaction ray hits; the parts are decoration.
+            foreach (var c in root.GetComponentsInChildren<Collider>()) UnityObject.DestroyImmediate(c);
+            var box = root.AddComponent<BoxCollider>();
+            box.size = new Vector3(w + 0.06f, h + 0.06f, d + 0.06f);
+
+            return root;
+        }
+
         public static GameObject CreateToolPickup(string itemId, string displayName, Vector3 position,
             Color color, string meshNamePrefix = null, string texFile = null,
             string standaloneModel = null, string standaloneTextures = null)
@@ -506,6 +560,9 @@ namespace LastWard.EditorTools
             trigger.size = new Vector3(0.4f, 0.35f, 0.9f);
             trigger.center = new Vector3(0f, 0.14f, 0f);
 
+            // Pulses when a player is within reach — the level is dark enough that small
+            // props were being missed entirely.
+            tool.AddComponent<ProximityGlow>();
             tool.AddComponent<NetworkObject>();
             var pickup = tool.AddComponent<NetworkedPickup>();
             SetString(pickup, "itemId", itemId);
@@ -575,7 +632,9 @@ namespace LastWard.EditorTools
         /// </summary>
         public static void CreateHidingOverlayUI(Transform canvas)
         {
-            var container = CreateRect("HidingOverlay", canvas, new Vector2(0.5f, 0f), new Vector2(520f, 34f), new Vector2(0f, 118f));
+            // Sits well below the interaction prompt (anchored at 0.18 height). The two were
+            // landing on top of each other, so "Come out [Q]" and "[E] Read ..." overlapped.
+            var container = CreateRect("HidingOverlay", canvas, new Vector2(0.5f, 0f), new Vector2(520f, 34f), new Vector2(0f, 56f));
             var group = container.gameObject.AddComponent<CanvasGroup>();
             group.alpha = 0f;
             group.blocksRaycasts = false;
@@ -778,7 +837,8 @@ namespace LastWard.EditorTools
         /// so the fuse puzzle could be walked straight around. Size is now passed in and must match
         /// the gap left in the wall.
         /// </summary>
-        public static NetworkedDoor CreateNetworkedDoor(string name, Vector3 position, float width = 2f, float height = 3f)
+        public static NetworkedDoor CreateNetworkedDoor(string name, Vector3 position, float width = 2f, float height = 3f,
+            bool startLocked = true)
         {
             var hinge = new GameObject(name);
             hinge.transform.position = position;
@@ -802,8 +862,9 @@ namespace LastWard.EditorTools
 
             var door = hinge.AddComponent<NetworkedDoor>();
             SetRef(door, "hinge", hinge.transform);
-            // Gated by a puzzle, not free to open — that's each puzzle's whole point.
-            SetBool(door, "startLocked", true);
+            // Puzzle-gated doors start locked — that's the puzzle's whole point. Plain connecting
+            // doors pass false so they're just doors (and something the Entity can slam through).
+            SetBool(door, "startLocked", startLocked);
             return door;
         }
 
@@ -849,6 +910,10 @@ namespace LastWard.EditorTools
 
             entity.AddComponent<NetworkObject>();
             var agent = entity.AddComponent<NavMeshAgent>();
+            // The capsule's pivot is at its CENTRE, not its feet, so without this the agent plants
+            // the centre on the NavMesh and the whole Entity sinks half its height into the floor —
+            // which is why it read as a short thing scuttling along at ankle level.
+            agent.baseOffset = 1.15f;
             agent.radius = 0.4f;
             agent.height = 2f;
             agent.speed = 2.2f;
@@ -1081,6 +1146,9 @@ namespace LastWard.EditorTools
             trigger.size = new Vector3(0.3f, 0.28f, 0.3f);
             trigger.center = new Vector3(0f, 0.12f, 0f);
 
+            // Pulses when a player is within reach — the level is dark enough that small
+            // props were being missed entirely.
+            fuse.AddComponent<ProximityGlow>();
             fuse.AddComponent<NetworkObject>();
             var pickup = fuse.AddComponent<NetworkedPickup>();
             SetString(pickup, "itemId", "fuse");

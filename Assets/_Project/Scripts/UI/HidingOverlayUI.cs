@@ -15,7 +15,7 @@ namespace LastWard.UI
     {
         [SerializeField] private CanvasGroup group;
         [SerializeField] private TextMeshProUGUI hint;
-        [SerializeField] private string hintFormat = "{0}   [Q]        [E] take";
+        [SerializeField] private string hintFormat = "{0}   [Q]";
 
         [Tooltip("How fast the panels close in and open back up.")]
         [SerializeField] private float fadeSpeed = 6f;
@@ -29,8 +29,14 @@ namespace LastWard.UI
             var spot = HidingSpot.LocalOccupied;
             bool hiding = spot != null;
 
-            if (hiding && spot != shown && hint != null)
+            if (hiding && hint != null)
             {
+                // Rebuilt every frame rather than only on entry: whether something is takeable
+                // changes as the player looks around, and advertising "[E] take" with nothing in
+                // view was simply wrong.
+                // Only the exit hint. The interaction prompt already names whatever is under the
+                // crosshair ("[E] Read Referral Note"), and printing a second generic "[E] take"
+                // beside it stacked two overlapping lines on screen.
                 hint.text = string.Format(hintFormat, spot.ExitPrompt);
                 shown = spot;
             }

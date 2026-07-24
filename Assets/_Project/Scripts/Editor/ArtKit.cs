@@ -739,15 +739,7 @@ namespace LastWard.EditorTools
             if (target == null) return;
             string modelPath = ArtRoot + modelRelPath;
 
-            AnimationClip clip = null;
-            foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(modelPath))
-            {
-                if (asset is AnimationClip candidate && !candidate.name.StartsWith("__preview"))
-                {
-                    clip = candidate;
-                    break;
-                }
-            }
+            AnimationClip clip = FindAnimationClip(modelPath);
             if (clip == null)
             {
                 Debug.LogWarning($"[ArtPass] No AnimationClip inside {modelRelPath} — model will stay in its bind pose.");
@@ -827,6 +819,141 @@ namespace LastWard.EditorTools
                       $"valid={(animator.avatar != null && animator.avatar.isValid)} | controller='{controller.name}'");
         }
 
+        /// <summary>
+        /// Builds the Watcher's full locomotion + catch state machine from the four separately
+        /// exported skeleton clips, and sets up the Animator on <paramref name="target"/> (avatar,
+        /// culling). Structure:
+        /// <list type="bullet">
+        /// <item>A 1-D blend tree "Locomotion" (Idle=0 → Walk=1 → Run=2), driven by the float
+        /// parameter of the same name — a distinct RUN clip rather than a sped-up walk, which is
+        /// what made the old chase read as a shuffle.</item>
+        /// <item>A one-shot "Catch" state entered from Any State on the "Catch" trigger, for the
+        /// jumpscare's intimate finish. No exit transition: the encounter ends there.</item>
+        /// </list>
+        /// The avatar still comes from the mesh model (<paramref name="meshModelRel"/>); the clips
+        /// carry only skeleton curves and retarget onto it by matching bone paths.
+        /// </summary>
+        public static void SetupEntityAnimator(GameObject target, string meshModelRel, string controllerName,
+            string idleName, string walkName, string runName, string catchName)
+        {
+            if (target == null) return;
+            string modelPath = ArtRoot + meshModelRel;
+
+            // Clips are pulled BY NAME out of the same model file that provides the mesh and
+            // skeleton. Previously they lived in separate skeleton-only .glb files and were expected
+            // to retarget onto this model's avatar — they silently did not bind, so the Animator
+            // played nothing at all and the Entity stood frozen in its bind pose. Same file means
+            // the curves address their own skeleton and binding cannot fail.
+            var idle = FindAnimationClipNamed(modelPath, idleName);
+            var walk = FindAnimationClipNamed(modelPath, walkName);
+            var run  = FindAnimationClipNamed(modelPath, runName);
+            var catchClip = FindAnimationClipNamed(modelPath, catchName);
+            if (idle == null || walk == null || run == null)
+            {
+                var found = new List<string>();
+                foreach (var a in AssetDatabase.LoadAllAssetsAtPath(modelPath))
+                    if (a is AnimationClip c && !c.name.StartsWith("__preview")) found.Add(c.name);
+                Debug.LogWarning($"[ArtPass] Missing an idle/walk/run clip inside {meshModelRel}. " +
+                    $"Clips actually present: [{string.Join(", ", found)}]. Falling back to a single clip.");
+                EnsureLoopingAnimator(target, meshModelRel, controllerName);
+                return;
+            }
+            Debug.Log($"[ArtPass] Watcher clips bound: idle='{idle.name}' walk='{walk.name}' run='{run.name}' " +
+                      $"catch='{(catchClip != null ? catchClip.name : "NONE")}'");
+
+            if (!AssetDatabase.IsValidFolder("Assets/_Project/Animations"))
+                AssetDatabase.CreateFolder("Assets/_Project", "Animations");
+            string controllerPath = $"Assets/_Project/Animations/{controllerName}.controller";
+
+            // Rebuilt from scratch every run: incrementally editing a cached controller is how stale
+            // states and dangling motion refs accumulated before. The scene reference is reassigned
+            // below, so a fresh asset GUID is fine.
+            if (AssetDatabase.LoadAssetAtPath<UnityEditor.Animations.AnimatorController>(controllerPath) != null)
+                AssetDatabase.DeleteAsset(controllerPath);
+            var controller = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPath(controllerPath);
+            if (controller.layers.Length == 0) controller.AddLayer("Base");
+            var sm = controller.layers[0].stateMachine;
+
+            controller.AddParameter("Locomotion", AnimatorControllerParameterType.Float);
+            controller.AddParameter("Catch", AnimatorControllerParameterType.Trigger);
+
+            var tree = new UnityEditor.Animations.BlendTree
+            {
+                name = "Locomotion",
+                blendType = UnityEditor.Animations.BlendTreeType.Simple1D,
+                blendParameter = "Locomotion",
+                useAutomaticThresholds = false,
+            };
+            AssetDatabase.AddObjectToAsset(tree, controller);
+            tree.AddChild(idle, 0f);
+            tree.AddChild(walk, 1f);
+            tree.AddChild(run, 2f);
+
+            var locoState = sm.AddState("Locomotion");
+            locoState.motion = tree;
+            sm.defaultState = locoState;
+
+            if (catchClip != null)
+            {
+                var catchState = sm.AddState("Catch");
+                catchState.motion = catchClip;
+                var toCatch = sm.AddAnyStateTransition(catchState);
+                toCatch.hasExitTime = false;
+                toCatch.duration = 0.12f;
+                toCatch.canTransitionToSelf = false;
+                toCatch.AddCondition(UnityEditor.Animations.AnimatorConditionMode.If, 0f, "Catch");
+            }
+
+            EditorUtility.SetDirty(controller);
+            SetupAnimatorComponent(target, ArtRoot + meshModelRel, controller);
+        }
+
+        /// <summary>
+        /// Shared Animator-component wiring: assigns the controller, pulls a valid Avatar off the
+        /// mesh model, and forces always-animate + offscreen updates so a rescaled skinned mesh with
+        /// stale bounds can't freeze in its bind pose. Factored out of EnsureLoopingAnimator so the
+        /// multi-clip entity path reuses exactly the same hard-won setup.
+        /// </summary>
+        private static void SetupAnimatorComponent(GameObject target, string modelPath,
+            UnityEditor.Animations.AnimatorController controller)
+        {
+            var animator = target.GetComponent<Animator>() ?? target.GetComponentInChildren<Animator>(true);
+            if (animator == null) animator = target.AddComponent<Animator>();
+            animator.runtimeAnimatorController = controller;
+            animator.applyRootMotion = false;
+            animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            foreach (var skinned in target.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                skinned.updateWhenOffscreen = true;
+
+            if (animator.avatar == null || !animator.avatar.isValid)
+            {
+                foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(modelPath))
+                {
+                    if (asset is not Avatar avatar || !avatar.isValid) continue;
+                    animator.avatar = avatar;
+                    break;
+                }
+            }
+            if (animator.avatar == null)
+                Debug.Log($"[ArtPass] No Avatar on {modelPath}. Not a problem here: the clips ship " +
+                    "inside this same model, so they bind to it by transform path. An Avatar is only " +
+                    "needed to RETARGET clips authored against a different rig.");
+
+            Debug.Log($"[ArtPass] Entity animator: controller='{controller.name}' " +
+                      $"avatar={(animator.avatar != null ? animator.avatar.name : "NONE")} " +
+                      $"valid={(animator.avatar != null && animator.avatar.isValid)}");
+        }
+
+        /// <summary>First AnimationClip inside a model whose name contains <paramref name="nameContains"/>.</summary>
+        private static AnimationClip FindAnimationClipNamed(string modelPath, string nameContains)
+        {
+            foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(modelPath))
+                if (asset is AnimationClip c && !c.name.StartsWith("__preview") &&
+                    c.name.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    return c;
+            return null;
+        }
+
         /// <summary>Points an existing controller's first state at <paramref name="clip"/>.</summary>
         private static void RebindControllerClip(UnityEditor.Animations.AnimatorController controller, AnimationClip clip)
         {
@@ -844,6 +971,15 @@ namespace LastWard.EditorTools
             state.motion = clip;
             EditorUtility.SetDirty(controller);
         }
+
+        private static AnimationClip FindAnimationClip(string modelPath)
+        {
+            foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(modelPath))
+                if (asset is AnimationClip candidate && !candidate.name.StartsWith("__preview"))
+                    return candidate;
+            return null;
+        }
+
     }
 }
 #endif

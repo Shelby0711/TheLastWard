@@ -6,6 +6,8 @@ namespace LastWard.Player
     public class FirstPersonMotor : MonoBehaviour
     {
         [SerializeField] private PlayerInputReader input;
+        [Tooltip("Replicates the crouch state so the Entity's server-side senses can read it.")]
+        [SerializeField] private LastWard.Net.PlayerNetworkState netState;
 
         [Header("Speed")]
         [SerializeField] private float walkSpeed = 3.2f;
@@ -44,7 +46,11 @@ namespace LastWard.Player
 
         private void Update()
         {
+            // Caught. No walking out of the encounter.
+            if (netState != null && netState.IsHeld) return;
+
             IsCrouching = input.CrouchHeld;
+            if (netState != null) netState.SetCrouching(IsCrouching);
             IsSprinting = input.SprintHeld && !IsCrouching;
 
             float targetHeight = IsCrouching ? crouchHeight : standHeight;

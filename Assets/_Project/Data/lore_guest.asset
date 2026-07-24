@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: lore_guest
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: lore_guest
+  displayTitle: Guest Comment Card
+  bodyText: 'Lovely stay otherwise, but the walls are terribly thin - we could hear
+    the family in the next room walking about at all hours.
+
+
+    (On the reverse,
+    a different hand: ''There is no next room.'')'
+  knowledgeValue: 1.5
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

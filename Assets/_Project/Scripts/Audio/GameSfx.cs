@@ -38,6 +38,18 @@ namespace LastWard.Audio
         public static AudioClip EntityStare => Get("deep-evil-male-laugh");
         public static AudioClip Heartbeat => Get("heartbeat-sound");
         public static AudioClip Whisper => Get("creepy-woman-cry");
+        /// <summary>The Entity's own breathing - close, wet and constant.</summary>
+        public static AudioClip EntityBreathing => Get("entity-breathing");
+        /// <summary>Corridor-only: girls muttering somewhere you are not.</summary>
+        public static AudioClip GirlsMumbling => Get("girls-mumbling-in-the-corridor");
+
+        /// <summary>Death stingers. Randomised so repeated deaths never land the same way.</summary>
+        public static AudioClip[] Jumpscares => GetMany("jumpscare01", "jumpscare02", "jumpscare03");
+
+        /// <summary>Fired repeatedly during a chase — the building screaming along with it.</summary>
+        public static AudioClip[] ChaseCries => GetMany(
+            "creepy-woman-cry", "evil-woman-laugh", "deep-evil-male-laugh",
+            "horror_cries_echoing", "someone-laughing");
 
         // --- player ---------------------------------------------------------------------------
         // Idle and walking share the same calm loop at different volumes — one person's breathing
@@ -81,6 +93,23 @@ namespace LastWard.Audio
                 if (c != null) list.Add(c);
             }
             return list.ToArray();
+        }
+
+        /// <summary>
+        /// Fires a clip straight at the listener - 2D, unpositioned, full volume regardless of where
+        /// anything is standing. For the death stinger, which must hit like a wall rather than fade
+        /// in from somewhere across the room.
+        /// </summary>
+        public static void Play2D(AudioClip clip, float volume = 1f)
+        {
+            if (clip == null) return;
+            var go = new GameObject("SFX_2D_" + clip.name);
+            var src = go.AddComponent<AudioSource>();
+            src.clip = clip;
+            src.volume = Mathf.Clamp01(volume);
+            src.spatialBlend = 0f;
+            src.Play();
+            UnityEngine.Object.Destroy(go, clip.length + 0.2f);
         }
 
         /// <summary>Random clip from a set, or null if the set is empty.</summary>

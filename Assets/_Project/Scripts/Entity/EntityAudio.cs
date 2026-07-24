@@ -28,15 +28,20 @@ namespace LastWard.Entity
         [SerializeField] private float movementVolume = 0.55f;
         [SerializeField] private float voiceVolume = 0.6f;
         [SerializeField] private float heartbeatVolume = 0.65f;
+        [Tooltip("The Entity's own breathing. Short range on purpose - it should only reach you when " +
+            "it is genuinely close, so hearing it at all means it is already too late to be casual.")]
+        [SerializeField] private float breathVolume = 0.5f;
 
         private AudioSource drone;
         private AudioSource movement;
         private AudioSource voice;
         private AudioSource heartbeat;
         private AudioSource whisper;
+        private AudioSource breath;
 
         private EntityState state = EntityState.Patrol;
         private Vector3 lastPosition;
+        private float nextChaseCry;
 
         private void Awake()
         {
@@ -55,6 +60,9 @@ namespace LastWard.Entity
 
             whisper = Add(GameSfx.Whisper, 0f, spatial: true, range: 20f);
             Play(whisper);
+
+            breath = Add(GameSfx.EntityBreathing, 0f, spatial: true, range: 15f);
+            Play(breath);
 
             lastPosition = transform.position;
         }
@@ -123,9 +131,12 @@ namespace LastWard.Entity
                 // zero, leaving footsteps faintly audible forever.
                 movement.volume = Mathf.MoveTowards(movement.volume, Mathf.Clamp01(speed / 3f) * movementVolume,
                     Time.deltaTime * 2f);
-                // Pitch rises when it runs — a charge is audible before it is visible.
-                movement.pitch = Mathf.Lerp(movement.pitch, Mathf.Clamp(0.8f + speed * 0.12f, 0.8f, 1.6f),
-                    Time.deltaTime * 4f);
+                // Pitch rises hard when it runs — a charge is audible before it is visible, and
+                // during a chase the footfalls should be coming faster than you can think.
+                float targetPitch = Mathf.Clamp(0.8f + speed * 0.18f, 0.8f, 2.1f);
+                if (chasing) targetPitch = Mathf.Max(targetPitch, 1.7f);
+                movement.pitch = Mathf.Lerp(movement.pitch, targetPitch, Time.deltaTime * 6f);
+                if (chasing) movement.volume = Mathf.Max(movement.volume, movementVolume);
             }
 
             if (voice != null)
@@ -135,6 +146,31 @@ namespace LastWard.Entity
                 heartbeat.volume = Mathf.MoveTowards(heartbeat.volume, chasing ? heartbeatVolume : 0f, Time.deltaTime * 1.2f);
                 if (heartbeat.volume <= 0.005f && heartbeat.isPlaying) heartbeat.Pause();
                 else if (heartbeat.volume > 0.005f && !heartbeat.isPlaying) heartbeat.UnPause();
+            }
+
+            // Cries and laughter pile in during a chase — irregularly, so it never settles into a
+            // rhythm the player can tune out.
+            if (chasing)
+            {
+                if (Time.time >= nextChaseCry)
+                {
+                    nextChaseCry = Time.time + Random.Range(1.6f, 4.5f);
+                    var cry = GameSfx.Random(GameSfx.ChaseCries);
+                    if (cry != null)
+                        AudioSource.PlayClipAtPoint(cry, transform.position, 0.8f);
+                }
+            }
+            else
+            {
+                nextChaseCry = Time.time + 1f;
+            }
+
+            if (breath != null)
+            {
+                // Always breathing; harder once it is coming for you. Distance is handled by the
+                // source's own rolloff, so this only shapes intensity.
+                breath.volume = Mathf.MoveTowards(breath.volume,
+                    chasing ? breathVolume * 1.6f : breathVolume, Time.deltaTime * 1.5f);
             }
 
             bool localIsMarked = KnowledgeService.Instance != null &&

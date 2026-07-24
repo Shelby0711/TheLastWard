@@ -17,7 +17,13 @@ namespace LastWard.Core
         /// <summary>Circling at a distance — close enough to be heard, not closing in.</summary>
         Stalk,
         /// <summary>Stopped dead, facing a player, watching. Ends in either a rush or a vanish.</summary>
-        Stare
+        Stare,
+        /// <summary>
+        /// Not in the building. Parked far away, senses off, hunting nobody. The default state
+        /// early on — an Entity that is always somewhere is an Entity you can map, and once you can
+        /// map it you stop being afraid of it.
+        /// </summary>
+        Dormant
     }
 
     public enum NoiseSource
