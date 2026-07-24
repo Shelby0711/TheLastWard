@@ -837,6 +837,55 @@ namespace LastWard.EditorTools
         /// so the fuse puzzle could be walked straight around. Size is now passed in and must match
         /// the gap left in the wall.
         /// </summary>
+        /// <summary>
+        /// A pair of doors meeting in the middle and swinging apart, hinged at the outer edges.
+        /// <paramref name="centre"/> is the MIDDLE of the opening at floor level, not an edge.
+        ///
+        /// Both leaves are driven by one NetworkedDoor, so there is a single lock, a single puzzle
+        /// reference and one replicated open/shut state - two independent doors would let a player
+        /// open half a gateway.
+        /// </summary>
+        public static NetworkedDoor CreateNetworkedDoubleDoor(string name, Vector3 centre,
+            float totalWidth = 3f, float height = 3f, bool startLocked = true)
+        {
+            var root = new GameObject(name);
+            root.transform.position = centre;
+            root.AddComponent<NetworkObject>();
+
+            float leafW = totalWidth / 2f;
+            Transform MakeLeaf(string leafName, float sign)
+            {
+                var leaf = new GameObject(leafName);
+                leaf.transform.SetParent(root.transform, false);
+                leaf.transform.localPosition = new Vector3(sign * leafW, 0f, 0f);  // hinge on the outer edge
+
+                var panel = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                panel.name = "Panel";
+                panel.transform.SetParent(leaf.transform, false);
+                panel.transform.localScale = new Vector3(leafW, height, 0.12f);
+                // Spans back INWARD from its hinge, so the two leaves meet on the centre line.
+                panel.transform.localPosition = new Vector3(-sign * leafW / 2f, height / 2f, 0f);
+                SetMaterial(panel, MakeMaterial(new Color(0.30f, 0.12f, 0.09f)));
+
+                var obstacle = panel.AddComponent<NavMeshObstacle>();
+                obstacle.shape = NavMeshObstacleShape.Box;
+                obstacle.size = Vector3.one;
+                obstacle.carving = true;
+                return leaf.transform;
+            }
+
+            var left = MakeLeaf("Leaf_L", -1f);
+            var right = MakeLeaf("Leaf_R", 1f);
+
+            var door = root.AddComponent<NetworkedDoor>();
+            SetRef(door, "hinge", left);
+            SetRef(door, "secondHinge", right);
+            SetFloat(door, "openAngle", 100f);
+            SetFloat(door, "secondOpenAngle", -100f);
+            SetBool(door, "startLocked", startLocked);
+            return door;
+        }
+
         public static NetworkedDoor CreateNetworkedDoor(string name, Vector3 position, float width = 2f, float height = 3f,
             bool startLocked = true)
         {
@@ -1164,9 +1213,12 @@ namespace LastWard.EditorTools
             (string label, Vector3 pos)[] stations,
             Vector3 orderNotePosition)
         {
-            // 3m wide: the Exit Route's north wall leaves x[-1.5,1.5] open, and a default 2m panel
-            // would leave a metre of it walkable straight past the puzzle.
-            var door = CreateNetworkedDoor(doorName, doorPosition, width: 3f, height: 3f);
+            // The Exit Route's north wall leaves x[-1.5,1.5] open. Built as two leaves parting in
+            // the middle: doorPosition is the hinge EDGE by the single-door convention, so the
+            // centre of the opening is half a width further along.
+            var door = CreateNetworkedDoubleDoor(doorName,
+                new Vector3(doorPosition.x + 1.5f, doorPosition.y, doorPosition.z),
+                totalWidth: 3f, height: 3f);
 
             var puzzleGO = new GameObject("IntercomPuzzle");
             puzzleGO.transform.position = puzzleMarkerPosition;

@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: ff_transfer
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: ff_transfer
+  displayTitle: Transfer Slip
+  bodyText: 'Improved. Moved upstairs for observation. Signed - Mgr.
+
+
+    The same
+    six words, in the same hand, on every slip in this drawer. None of them say where
+    upstairs is. There is no floor above this one.'
+  knowledgeValue: 3
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

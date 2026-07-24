@@ -46,6 +46,8 @@ namespace LastWard.EditorTools
             CreateCorridorZone();
             CreateExitRouteZone();
             CreateFloorStairs();
+            CreateBlindLore();
+            CreateFirstFloor();
             CreateZoneThreshold();
 
             EditorBuildKit.CreateBootstrapCamera(new Vector3(0f, 1.6f, -11f));
@@ -556,7 +558,7 @@ namespace LastWard.EditorTools
         /// from <paramref name="start"/>, which is the FRONT EDGE of the first tread at floor level.
         /// </summary>
         private static void BuildStaircase(string name, Vector3 start, int steps, float rise,
-            float run, float width, string stepTex, string wallTex)
+            float run, float width, string stepTex, string wallTex, float zDir = 1f)
         {
             var root = new GameObject(name).transform;
             const float h = 3f;
@@ -565,7 +567,7 @@ namespace LastWard.EditorTools
             for (int i = 0; i < steps; i++)
             {
                 float y = start.y + rise * (i + 1);
-                float z = start.z + run * (i + 0.5f);
+                float z = start.z + zDir * run * (i + 0.5f);
                 // Each tread is a solid block down to the previous step, so there is no gap to fall
                 // through and the collider is one clean box per step.
                 float slabH = Mathf.Abs(rise) + 0.05f;
@@ -577,7 +579,7 @@ namespace LastWard.EditorTools
             }
 
             // Side walls so the flight reads as a stairwell and nobody walks off the edge.
-            float midZ = start.z + run * steps / 2f;
+            float midZ = start.z + zDir * run * steps / 2f;
             float midY = start.y + rise * steps / 2f;
             float span = Mathf.Abs(rise) * steps + h;
             foreach (float sx in new[] { -1f, 1f })
@@ -588,6 +590,217 @@ namespace LastWard.EditorTools
                 Tile(w, wallTex, 2f);
                 w.transform.SetParent(root, true);
             }
+        }
+
+        // ================= FIRST FLOOR =================
+        // Sits at y=3.2, the height the zig-zag climbs to. A spine corridor with five rooms off it,
+        // each one a different job the building used to do. Textures come from the FF set so the
+        // floor reads as somewhere else entirely, not more of the ground floor.
+        private const float FFy = 3.2f;
+        private const string FFWallA = "FirstFloor/Textures/Wall_01_256x256.png";
+        private const string FFWallB = "FirstFloor/Textures/Wall_02_256x256.png";
+        private const string FFFloorA = "FirstFloor/Textures/Floor_Tiles_01_256x256.png";
+        private const string FFFloorB = "FirstFloor/Textures/Floor_Tiles_02_256x256.png";
+
+        /// <summary>
+        /// One first-floor room: floor, ceiling, three solid walls and a doorway wall facing the
+        /// corridor, plus the short passage connecting the two. Same construction as the ground
+        /// floor's side rooms, lifted to FFy and given its own texture pair.
+        /// </summary>
+        private static void BuildFFRoom(string name, Vector3 centre, Vector2 size,
+            string wallTex, string floorTex, Color lightColor, float corridorWallX)
+        {
+            const float h = 3f;
+            const float t = 0.3f;
+            float hw = size.x / 2f, hd = size.y / 2f;
+            bool opensWest = centre.x > 0f;
+            float doorX = opensWest ? centre.x - hw : centre.x + hw;
+            const float doorHalf = 1.1f;
+
+            Tile(EditorBuildKit.CreateBox($"{name}_Floor", new Vector3(centre.x, FFy - 0.1f, centre.z), new Vector3(size.x, 0.2f, size.y)), floorTex, 2f);
+            Tile(EditorBuildKit.CreateBox($"{name}_Ceiling", new Vector3(centre.x, FFy + h, centre.z), new Vector3(size.x, 0.2f, size.y)), floorTex, 3f);
+
+            float farX = opensWest ? centre.x + hw : centre.x - hw;
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_Far", new Vector3(farX, FFy + h / 2f, centre.z), new Vector3(t, h, size.y + t)), wallTex, 2f);
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_S", new Vector3(centre.x, FFy + h / 2f, centre.z - hd), new Vector3(size.x, h, t)), wallTex, 2f);
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_N", new Vector3(centre.x, FFy + h / 2f, centre.z + hd), new Vector3(size.x, h, t)), wallTex, 2f);
+
+            float seg = (size.y - doorHalf * 2f) / 2f;
+            float segOff = doorHalf + seg / 2f;
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_Door_A", new Vector3(doorX, FFy + h / 2f, centre.z - segOff), new Vector3(t, h, seg)), wallTex, 2f);
+            Tile(EditorBuildKit.CreateBox($"{name}_Wall_Door_B", new Vector3(doorX, FFy + h / 2f, centre.z + segOff), new Vector3(t, h, seg)), wallTex, 2f);
+
+            float edge = opensWest ? corridorWallX : -corridorWallX;
+            float passLen = Mathf.Abs(doorX - edge);
+            if (passLen > 0.2f)
+            {
+                float px = (doorX + edge) / 2f;
+                Tile(EditorBuildKit.CreateBox($"{name}_Pass_Floor", new Vector3(px, FFy - 0.1f, centre.z), new Vector3(passLen, 0.2f, doorHalf * 2f)), floorTex, 2f);
+                Tile(EditorBuildKit.CreateBox($"{name}_Pass_Ceil", new Vector3(px, FFy + h, centre.z), new Vector3(passLen, 0.2f, doorHalf * 2f)), floorTex, 3f);
+                Tile(EditorBuildKit.CreateBox($"{name}_Pass_S", new Vector3(px, FFy + h / 2f, centre.z - doorHalf), new Vector3(passLen, h, t)), wallTex, 2f);
+                Tile(EditorBuildKit.CreateBox($"{name}_Pass_N", new Vector3(px, FFy + h / 2f, centre.z + doorHalf), new Vector3(passLen, h, t)), wallTex, 2f);
+            }
+
+            AddFlickeringTube(new Vector3(centre.x, FFy + h - 0.25f, centre.z), lightColor, 0.13f);
+        }
+
+        /// <summary>
+        /// The first floor. Five rooms off a spine corridor, each one a job the building used to do,
+        /// and between them the story of the man who ran it. The Receptionist downstairs was staff;
+        /// the Manager decided who stayed. This floor is where you learn the difference.
+        /// </summary>
+        private static void CreateFirstFloor()
+        {
+            const float h = 3f;
+            const float t = 0.3f;
+            const float zS = 57f, zN = 87f;   // corridor extent
+            float mid = (zS + zN) / 2f;
+
+            // Spine corridor, x[-1.5,1.5], reached from the top of the zig-zag.
+            Tile(EditorBuildKit.CreateBox("FF_Corridor_Floor", new Vector3(0f, FFy - 0.1f, mid), new Vector3(3f, 0.2f, zN - zS)), FFFloorA, 2f);
+            Tile(EditorBuildKit.CreateBox("FF_Corridor_Ceiling", new Vector3(0f, FFy + h, mid), new Vector3(3f, 0.2f, zN - zS)), FFFloorA, 3f);
+            Tile(EditorBuildKit.CreateBox("FF_Corridor_N", new Vector3(0f, FFy + h / 2f, zN), new Vector3(3f + t, h, t)), FFWallA, 2f);
+
+            // East and west walls, segmented to leave 2.2m doorways for each room.
+            // East doorways at z=62 and z=72 and z=82; west at z=65 and z=75.
+            float[] eastDoors = { 62f, 72f, 82f };
+            float[] westDoors = { 65f, 75f };
+            BuildFFCorridorWall("FF_Corridor_E", 1.5f, zS, zN, eastDoors, h, t, FFWallA);
+            BuildFFCorridorWall("FF_Corridor_W", -1.5f, zS, zN, westDoors, h, t, FFWallB);
+
+            // --- the five rooms ---
+            BuildFFRoom("FF_Office",   new Vector3(5.5f, 0f, 62f), new Vector2(6f, 6f), FFWallB, FFFloorB, new Color(0.95f, 0.80f, 0.55f), 1.5f);
+            BuildFFRoom("FF_WardTwo",  new Vector3(-5.5f, 0f, 65f), new Vector2(6f, 7f), FFWallA, FFFloorA, new Color(0.75f, 0.85f, 0.95f), 1.5f);
+            BuildFFRoom("FF_Records",  new Vector3(5.5f, 0f, 72f), new Vector2(6f, 6f), FFWallA, FFFloorB, new Color(0.90f, 0.75f, 0.50f), 1.5f);
+            BuildFFRoom("FF_Theatre",  new Vector3(-5.5f, 0f, 75f), new Vector2(6f, 7f), FFWallB, FFFloorA, new Color(0.95f, 0.95f, 0.90f), 1.5f);
+            BuildFFRoom("FF_Staff",    new Vector3(5.5f, 0f, 82f), new Vector2(6f, 6f), FFWallB, FFFloorB, new Color(0.85f, 0.70f, 0.60f), 1.5f);
+
+            DressFirstFloor();
+            CreateManagerLore();
+        }
+
+        /// <summary>
+        /// Furniture for the five first-floor rooms. Every piece is drawn from the FF prop set and
+        /// placed against a wall, so the middle of each room stays clear to be chased through. The
+        /// choice of props IS the storytelling here: what a room contains is what it was for.
+        /// </summary>
+        private static void DressFirstFloor()
+        {
+            var parent = new GameObject("FF_Dressing").transform;
+            const string PR = "FirstFloor/Props/";
+
+            void Place(string model, string name, float height, Vector3 pos, float yaw)
+            {
+                var go = PlaceProp(parent, PR + model, null, null, name, height, pos, yaw);
+                if (go != null) ArtKit.AutoTexture(go, "FirstFloor/Textures", alphaClip: false, pointFilter: false);
+            }
+
+            // 1. The Manager's office - his desk, his chair, his view of the corridor.
+            Place("Furniture/DoctorsDesk/DoctorsDesk.fbx", "FF_Desk", 0.78f, new Vector3(7.2f, FFy, 63.4f), -90f);
+            Place("Furniture/StorageRack/StorageRack.fbx", "FF_OfficeRack", 1.9f, new Vector3(5.5f, FFy, 64.6f), 180f);
+            Place("Misc/Picture_01/Picture_01.fbx", "FF_OfficePicture", 0.6f, new Vector3(4.4f, FFy + 1.7f, 62f), 90f);
+
+            // 2. Ward Two - the beds people were moved to when they "improved".
+            Place("Furniture/Bed_01/Bed_01.fbx", "FF_Bed1", 0.6f, new Vector3(-7.3f, FFy, 63.2f), 90f);
+            Place("Furniture/Bed_02/Bed_02.fbx", "FF_Bed2", 0.6f, new Vector3(-7.3f, FFy, 66.4f), 90f);
+            Place("Furniture/Nightstand/Nightstand.fbx", "FF_Night1", 0.55f, new Vector3(-7.3f, FFy, 64.8f), 90f);
+            Place("Misc/IV_Stand/IV_Stand.fbx", "FF_IV1", 1.6f, new Vector3(-4.6f, FFy, 63.6f), 0f);
+            Place("Misc/IV_Stand/IV_Stand.fbx", "FF_IV2", 1.6f, new Vector3(-4.6f, FFy, 66.8f), 25f);
+
+            // 3. Records - shelves of people, and the trolley someone left mid-job.
+            Place("Furniture/StorageRack/StorageRack.fbx", "FF_Rack1", 1.9f, new Vector3(7.3f, FFy, 70.6f), -90f);
+            Place("Furniture/StorageRack/StorageRack.fbx", "FF_Rack2", 1.9f, new Vector3(7.3f, FFy, 73.4f), -90f);
+            Place("Misc/Bucket/Bucket.fbx", "FF_Bucket1", 0.35f, new Vector3(4.6f, FFy, 71.8f), 0f);
+
+            // 4. Theatre - the screen, the chair, and a bucket nobody emptied.
+            Place("Furniture/Screen/Screen.fbx", "FF_Screen", 1.8f, new Vector3(-4.6f, FFy, 76.6f), 110f);
+            Place("Misc/WheelChair/WheelChair.fbx", "FF_Chair", 1.1f, new Vector3(-6.2f, FFy, 74.2f), 40f);
+            Place("Misc/Bucket/Bucket.fbx", "FF_Bucket2", 0.35f, new Vector3(-7.4f, FFy, 76.8f), 0f);
+            Place("Misc/IV_Stand/IV_Stand.fbx", "FF_IV3", 1.6f, new Vector3(-7.4f, FFy, 72.6f), 0f);
+
+            // 5. Staff room - a bed nobody should have been sleeping in, and the vent.
+            Place("Furniture/Bed_01/Bed_01_D.fbx", "FF_StaffBed", 0.6f, new Vector3(7.3f, FFy, 83.4f), -90f);
+            Place("Furniture/Nightstand/Nightstand.fbx", "FF_Night2", 0.55f, new Vector3(7.3f, FFy, 81.4f), -90f);
+            Place("Misc/AirVent/AirVent.fbx", "FF_Vent", 0.55f, new Vector3(4.4f, FFy + 2.2f, 82f), 90f);
+            Place("Misc/Picture_01/Picture_01.fbx", "FF_StaffPicture", 0.6f, new Vector3(5.5f, FFy + 1.7f, 84.8f), 180f);
+        }
+
+        /// <summary>
+        /// The Manager. The Receptionist downstairs was staff - he greeted people. The Manager
+        /// decided which of them left again. These notes never describe him physically; they only
+        /// ever record what he signed, which is the point.
+        /// </summary>
+        private static void CreateManagerLore()
+        {
+            EditorBuildKit.CreateNoteProp("FF_Note_Ledger", new Vector3(6.6f, FFy, 63.4f),
+                "Assets/_Project/Data/ff_ledger.asset", "ff_ledger", "Occupancy Ledger - Ward Two",
+                "Beds are counted at seven and again at seven. The count has not gone down in " +
+                "eleven weeks and it has not gone up either. The Manager signs it every night and " +
+                "every night it is the same number, and every night it is different people.", 3f);
+
+            EditorBuildKit.CreateNoteProp("FF_Note_Transfer", new Vector3(-6.4f, FFy, 64.8f),
+                "Assets/_Project/Data/ff_transfer.asset", "ff_transfer", "Transfer Slip",
+                "Improved. Moved upstairs for observation. Signed - Mgr.\n\nThe same six words, in " +
+                "the same hand, on every slip in this drawer. None of them say where upstairs is. " +
+                "There is no floor above this one.", 3f);
+
+            EditorBuildKit.CreateNoteProp("FF_Note_Theatre", new Vector3(-5.2f, FFy, 76.2f),
+                "Assets/_Project/Data/ff_theatre.asset", "ff_theatre", "Procedure Log",
+                "He does not scrub in and he does not wear gloves and nobody has ever asked him to. " +
+                "He stands at the end of the table where the patient can see him, and he waits, and " +
+                "when it is finished he writes IMPROVED and goes back upstairs.", 4f);
+
+            EditorBuildKit.CreateNoteProp("FF_Note_Staff", new Vector3(6.6f, FFy, 81.4f),
+                "Assets/_Project/Data/ff_staff.asset", "ff_staff", "Rota - Torn",
+                "Whoever is on nights: the corridor lights on this floor are on the same circuit as " +
+                "the ward. If yours start going, his are already out. Do not wait to find out how " +
+                "far away he is. You will not hear him - he is not the one who limps.", 4f);
+
+            EditorBuildKit.CreateNoteProp("FF_Note_Warning", new Vector3(0.9f, FFy, 86f),
+                "Assets/_Project/Data/ff_warning.asset", "ff_warning", "Written On The Wall",
+                "THE ONE DOWNSTAIRS CANNOT SEE. THIS ONE DOES NOTHING BUT. " +
+                "DO NOT LET IT GET BETWEEN YOU AND THE STAIRS.", 4f);
+        }
+
+        /// <summary>A corridor wall broken by doorways at the given Z centres.</summary>
+        private static void BuildFFCorridorWall(string name, float x, float zS, float zN,
+            float[] doorZ, float h, float t, string tex)
+        {
+            const float doorHalf = 1.1f;
+            var edges = new List<float> { zS };
+            foreach (float dz in doorZ) { edges.Add(dz - doorHalf); edges.Add(dz + doorHalf); }
+            edges.Add(zN);
+            for (int i = 0; i < edges.Count; i += 2)
+            {
+                float a = edges[i], b = edges[i + 1];
+                if (b - a < 0.05f) continue;
+                Tile(EditorBuildKit.CreateBox($"{name}_{i}", new Vector3(x, FFy + h / 2f, (a + b) / 2f),
+                    new Vector3(t, h, b - a)), tex, 2f);
+            }
+        }
+        /// <summary>
+        /// The notes that name it. Nobody in these papers ever calls it a monster: to the people who
+        /// worked here it was the Receptionist, the man on the front desk who never needed the lights
+        /// on. That it is blind is the joke the building is playing - you can stand in the dark with
+        /// your torch off and it will still find you, because it was never looking.
+        /// </summary>
+        private static void CreateBlindLore()
+        {
+            EditorBuildKit.CreateNoteProp("Note_Reception", new Vector3(-3.4f, 0f, 4.2f),
+                "Assets/_Project/Data/lore_reception.asset", "lore_reception", "Staff Notice - Front Desk",
+                "Please stop leaving the reception lamp on overnight. He has asked twice now. " +
+                "He does not need it and the bulbs are coming out of our budget, not yours.", 2f);
+
+            EditorBuildKit.CreateNoteProp("Note_Referral2", new Vector3(3.6f, 0f, 8.6f),
+                "Assets/_Project/Data/lore_referral2.asset", "lore_referral2", "Ophthalmology - Discharge",
+                "Bilateral, complete, and permanent. No further appointments necessary. " +
+                "Patient declined a cane. Says he knows the building better than any of us and " +
+                "frankly, having watched him on nights, I am inclined to agree.", 3f);
+
+            EditorBuildKit.CreateNoteProp("Note_Scrawl", new Vector3(4.1f, 0f, 16.4f),
+                "Assets/_Project/Data/lore_scrawl.asset", "lore_scrawl", "Scratched Into The Paint",
+                "TURN IT OFF. IT CANNOT SEE THE LIGHT. IT NEVER COULD. " +
+                "IT HEARS YOU FUMBLING WITH THE SWITCH AND IT COMES.", 3f);
         }
 
         /// <summary>
@@ -632,17 +845,29 @@ namespace LastWard.EditorTools
             BuildStaircase("Stairs_Basement", new Vector3(-2f, 0f, z0), steps, -riseStep, run, 2.6f,
                 "Textures/Floor_Stone.png", "Textures/Wall_Stone.png");
 
-            // UP to the second floor, east. Tiled like the Lobby -- this part was still in use.
-            BuildStaircase("Stairs_SecondFloor", new Vector3(2f, 0f, z0), steps, riseStep, run, 2.6f,
+            // UP to the first floor as a ZIG-ZAG: eight steps, a half-landing, then eight more
+            // doubling back. A single straight flight let you see the whole climb - and whatever was
+            // waiting at the top - from the bottom step. A dog-leg hides the landing until you are
+            // committed to it, which is the entire reason stairwells are frightening.
+            const int half = steps / 2;                 // 8 up, turn, 8 up
+            const float midY = riseStep * half;         // 1.6m
+            BuildStaircase("Stairs_FF_FlightA", new Vector3(1.2f, 0f, z0), half, riseStep, run, 2.0f,
                 "Textures/Floor_Tile.png", "Textures/Wall_Tile.png");
+            // Half-landing spanning both flights, at the turn.
+            Tile(EditorBuildKit.CreateBox("Stairs_FF_HalfLanding",
+                new Vector3(2f, midY - 0.1f, z0 + run * half + 0.8f), new Vector3(4.4f, 0.2f, 1.6f)),
+                "Textures/Floor_Tile.png", 2f);
+            // Second flight doubles back on itself, offset sideways so it climbs alongside the first.
+            BuildStaircase("Stairs_FF_FlightB", new Vector3(3.2f, midY, z0 + run * half + 1.6f), half,
+                riseStep, run, 2.0f, "Textures/Floor_Tile.png", "Textures/Wall_Tile.png", zDir: -1f);
 
             // Landings so neither flight stops in mid-air. Next session these become the openings
             // into the basement and the second floor.
             Tile(EditorBuildKit.CreateBox("Stairs_Basement_Landing",
                 new Vector3(-2f, -riseStep * steps - 0.1f, z1 + 1.2f), new Vector3(2.6f, 0.2f, 2.4f)),
                 "Textures/Floor_Stone.png", 2f);
-            Tile(EditorBuildKit.CreateBox("Stairs_SecondFloor_Landing",
-                new Vector3(2f, riseStep * steps - 0.1f, z1 + 1.2f), new Vector3(2.6f, 0.2f, 2.4f)),
+            Tile(EditorBuildKit.CreateBox("Stairs_FF_TopLanding",
+                new Vector3(3.2f, riseStep * steps - 0.1f, z0 - 0.6f), new Vector3(2.6f, 0.2f, 2.4f)),
                 "Textures/Floor_Tile.png", 2f);
 
             // Divider between the flights, tall enough to span both stairwells.

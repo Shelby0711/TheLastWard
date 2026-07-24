@@ -63,15 +63,15 @@ namespace LastWard.Entity
         [Tooltip("Unhidden and this close with no wall between starts the chase REGARDLESS of which " +
             "way it faces. This is what stops it standing beside or behind a player noticing nothing.")]
         [SerializeField] private float pointBlankRadius = 3.2f;
+        [Tooltip("Hiding buys you NOTHING inside this radius. Ducking into a cupboard while it is " +
+            "stood over you is not stealth, it is theatre - and doing it mid-chase was the cheapest " +
+            "escape in the game. Get distance first, then hide.")]
+        [SerializeField] private float hideDenyRadius = 6.5f;
+        [Tooltip("Get this close to someone hiding and it simply takes them out of the cupboard. " +
+            "Without it the Entity cannot physically path to a hidden player and just orbits the " +
+            "spot, which is both harmless and absurd.")]
+        [SerializeField] private float hideExtractRadius = 2.5f;
         [SerializeField] private float eyeHeight = 1.5f;
-
-        [Header("Torch betrayal")]
-        [Tooltip("A player shining their flashlight AT the Entity gives themselves away — even from " +
-            "a hiding spot. The beam has to actually land on it: within this range...")]
-        [SerializeField] private float torchBetrayRange = 18f;
-        [Tooltip("...and within this half-angle of where the player is looking. Wide enough that " +
-            "'pointing at it' counts, tight enough that sweeping the room past it does not stick.")]
-        [SerializeField] private float torchBetrayHalfAngle = 30f;
 
         [Header("Presence")]
         [Tooltip("A living player within this range, looking roughly at it, counts as SEEING it. " +
@@ -105,8 +105,6 @@ namespace LastWard.Entity
         [SerializeField] private float discoveryDecayPerSecond = 0.3f;
         [Tooltip("Extra drain while inside a hiding spot, on top of the normal decay.")]
         [SerializeField] private float hiddenDecayBonus = 0.5f;
-        [Tooltip("A lit flashlight makes you far easier to pick out of the dark.")]
-        [SerializeField] private float flashlightDetectionMultiplier = 2.4f;
         [Tooltip("Discovery at which it may stop and stare instead of continuing to lurk.")]
         [SerializeField, Range(0f, 1f)] private float stareThreshold = 0.55f;
         [SerializeField] private float stareChance = 0.5f;
@@ -116,9 +114,6 @@ namespace LastWard.Entity
         [Tooltip("While it stands and watches, closing inside this distance triggers an immediate " +
             "full-speed rush — trying to slip past something that is staring at you is punished.")]
         [SerializeField] private float stareTripDistance = 6f;
-        [Tooltip("Meter gained per second while the torch is on. Tuned so a few seconds of light " +
-            "adds roughly 30% — the difference between 'made a noise' and 'made a noise while lit'.")]
-        [SerializeField] private float torchDrawPerSecond = 0.05f;
 
         [Header("Unpredictability")]
         [Tooltip("It won't start a chase for this long after the run begins, so the opening puzzle " +
@@ -211,6 +206,7 @@ namespace LastWard.Entity
         private Unity.Netcode.Components.NetworkTransform netTransform;
         private bool parkedWhileAbsent;   // has it already teleported out of the way this absence?
         private Renderer[] visualRenderers;
+        private float stunnedUntil;
         private bool jumpscareRunning;
 
         private readonly List<Transform> players = new List<Transform>();
@@ -286,6 +282,19 @@ namespace LastWard.Entity
                 if (r != null) r.enabled = !absent;
         }
 
+        /// <summary>
+        /// Server-only. A thrown pipe or knife stops it dead where it stands. It is not hurt and it
+        /// is not driven off - it simply stops, which is worse: you have bought seconds, not safety,
+        /// and it was already looking at you when it started again.
+        /// </summary>
+        public void ServerStun(float seconds)
+        {
+            if (!IsServer || seconds <= 0f) return;
+            stunnedUntil = Mathf.Max(stunnedUntil, Time.time + seconds);
+            if (agent != null && agent.enabled && agent.isOnNavMesh) agent.isStopped = true;
+            GameEvents.RaiseNoiseEmitted(transform.position, 8f, NoiseSource.PuzzleInteraction);
+        }
+
         private void OnNetStateChanged(EntityState previous, EntityState current)
         {
             ApplyPresenceVisibility(current);
@@ -300,6 +309,20 @@ namespace LastWard.Entity
             // through that window called SetDestination on a disabled agent, which is the error
             // thrown at the moment of death.
             if (jumpscareRunning) return;
+
+            // Stopped in its tracks by a thrown weapon. Everything is frozen for the duration -
+            // it does not path, sense or re-target, it just stands there.
+            if (stunnedUntil > 0f)
+            {
+                if (Time.time < stunnedUntil)
+                {
+                    if (agent.isOnNavMesh) agent.isStopped = true;
+                    return;
+                }
+                stunnedUntil = 0f;
+                if (agent.isOnNavMesh && state != EntityState.Stare && state != EntityState.Dormant)
+                    agent.isStopped = false;
+            }
 
             stateTimer += Time.deltaTime;
             runTime += Time.deltaTime;
@@ -456,10 +479,10 @@ namespace LastWard.Entity
                 // could not notice anyone — only the CHASE should wait, not the noticing.
                 // Dormant means genuinely absent: no senses at all. Without this the Entity is
                 // still quietly accumulating discovery on people it is nowhere near.
-                // Worked out BEFORE visibility, because visibility has to honour it: a hidden
-                // player lighting it up is no longer hidden as far as its senses are concerned.
-                bool beamOnEntity = TorchBeamHitsMe(pns, distance);
-                bool effectivelyHidden = pns.IsHidden && !beamOnEntity;
+                // Worked out BEFORE visibility, because visibility has to honour it. Hiding only
+                // counts once there is distance between you: inside hideDenyRadius it knows exactly
+                // where you went, and a cupboard is just a smaller room to be found in.
+                bool effectivelyHidden = pns.IsHidden && distance > hideDenyRadius;
 
                 bool trueVisible = IsVisible(player, pns, distance, effectivelyHidden);
                 // Dormancy stops it HUNTING, not seeing. Gating vision on it entirely is why it
@@ -469,21 +492,6 @@ namespace LastWard.Entity
                 // Proximity sense: close enough and it knows, whatever it happens to be facing.
                 // Without this the Entity is a security camera on legs — it walked past players
                 // standing in the open simply because they were not inside its cone.
-                // Shining your torch AT it betrays you — even from a hiding spot. A hidden player is
-                // otherwise invisible to every sense; the beam is the one thing that gives them away,
-                // which makes the flashlight a liability you choose to carry, not free vision.
-                if (beamOnEntity)
-                {
-                    // It reacts: turns and comes to look, waking if it was absent. This is the fix
-                    // for "I can flashlight straight onto it from under the bed and it does nothing".
-                    lastKnownPos = player.position;
-                    stimulusPos = player.position;
-                    hasStimulus = true;
-                    if (state == EntityState.Dormant || state == EntityState.Patrol ||
-                        state == EntityState.Stalk || state == EntityState.Return)
-                        EnterState(EntityState.Investigate);
-                }
-
                 float senseRadius = effectivelyHidden ? hiddenSenseRadius : proximitySenseRadius;
                 // Crouching shrinks how close it can sense you and slows how fast it reads you.
                 // Previously crouching did nothing for stealth at all, so the meter climbed while
@@ -537,7 +545,6 @@ namespace LastWard.Entity
                     // the run it notices you roughly twice as fast.
                     float proximity = Mathf.Lerp(2f, 0.65f, Mathf.Clamp01(distance / visionRange));
                     float rate = proximity / Mathf.Max(0.1f, timeToDiscover);
-                    if (pns.FlashlightOn) rate *= flashlightDetectionMultiplier;
                     if (crouching) rate *= crouchSenseMultiplier;
                     rate *= 1f + Progress;
                     current += rate * Time.deltaTime;
@@ -556,10 +563,6 @@ namespace LastWard.Entity
                     float decay = discoveryDecayPerSecond + (pns.IsHidden ? hiddenDecayBonus : 0f);
                     current -= decay * Time.deltaTime;
 
-                    // A torch left burning keeps winding the meter even with no line of sight, so
-                    // light is a resource to spend rather than something to leave on permanently.
-                    if (pns.FlashlightOn && !pns.IsHidden)
-                        current += torchDrawPerSecond * (1f + Progress) * Time.deltaTime;
                 }
 
                 current = Mathf.Clamp01(current);
@@ -730,43 +733,13 @@ namespace LastWard.Entity
             {
                 if (player == null) continue;
                 if (!player.TryGetComponent<PlayerNetworkState>(out var pns)) continue;
-                if (!pns.IsAlive || pns.IsHidden) continue;
+                if (!pns.IsAlive) continue;
+                // Hiding protects you only at a distance - see hideDenyRadius.
+                if (pns.IsHidden &&
+                    Vector3.Distance(transform.position, player.position) > hideDenyRadius) continue;
                 if (pns.Discovery >= 0.999f) return player;
             }
             return null;
-        }
-
-        /// <summary>
-        /// True when a player's flashlight beam is actually landing on the Entity — on, in range,
-        /// pointed within the beam cone, and with a clear-ish line to it. A blocker within ~1.6 m of
-        /// the player is treated as the hiding furniture they are shining out from and does not count;
-        /// a wall further off does. This is what makes shining your torch at it, from anywhere, a tell.
-        /// </summary>
-        private bool TorchBeamHitsMe(PlayerNetworkState pns, float distance)
-        {
-            if (!pns.FlashlightOn || distance > torchBetrayRange) return false;
-            var pivot = pns.CameraPivot;
-            if (pivot == null) return false;
-
-            Vector3 eye = transform.position + Vector3.up * eyeHeight;
-            Vector3 toEntity = eye - pivot.position;
-            if (Vector3.Angle(pivot.forward, toEntity) > torchBetrayHalfAngle) return false;
-
-            // The Entity carries NO collider (the capsule's is destroyed at build time and the
-            // art pass strips them off the model), so a raycast can never report hitting it. The
-            // real test is therefore "is anything solid strictly BETWEEN the torch and it" - the
-            // old check asked whether the ray hit the Entity, which was never true, so a wall
-            // behind it failed the test and the betrayal never fired once.
-            float reach = toEntity.magnitude;
-            if (Physics.Linecast(pivot.position, eye, out var h, ~0, QueryTriggerInteraction.Ignore))
-            {
-                bool hitEntity = h.transform == transform || h.transform.IsChildOf(transform);
-                // A blocker right on top of the player is the furniture they are hiding inside and
-                // shining out past; anything further along that still stops short of the Entity is
-                // a real wall.
-                if (!hitEntity && h.distance > 1.2f && h.distance < reach - 0.35f) return false;
-            }
-            return true;
         }
 
         private bool IsVisible(Transform player, PlayerNetworkState pns, float distance, bool hidden)
@@ -1031,11 +1004,26 @@ namespace LastWard.Entity
                 return;
             }
 
+            // Hiding does not save you from something already standing over you - it opens the
+            // cupboard. The Entity can never path INTO a hiding spot, so without this it closed to
+            // the furniture and circled it indefinitely.
+            bool targetHidden = chased != null && chased.IsHidden;
+            if (targetHidden && distance <= hideExtractRadius && !jumpscareRunning)
+            {
+                StartCoroutine(JumpscareRoutine(target));
+                return;
+            }
+
             // Break off mid-chase and vanish. Only once it's been chasing a while AND isn't right
             // on top of the player — being nearly caught should always stay committed, otherwise
             // escapes stop feeling earned. The commit time is re-rolled per chase, so outrunning it
             // once teaches the player nothing about the next time.
-            if (chaseElapsed >= chaseCommit * (1f + Progress * 1.5f) && distance > commitWithinDistance)
+            // The normal break-off deliberately refuses to fire while it is close - right for an
+            // open-floor chase, catastrophic when the target is somewhere it cannot reach at all.
+            // This ceiling guarantees every chase terminates.
+            bool stuckTooLong = chaseElapsed >= chaseCommit * 2.5f;
+            if (stuckTooLong ||
+                (chaseElapsed >= chaseCommit * (1f + Progress * 1.5f) && distance > commitWithinDistance))
             {
                 // Give up the meter as it gives up the chase. A chase left the target's meter pinned
                 // near full; without this drop it would be instantly re-flagged as fully discovered
@@ -1045,7 +1033,16 @@ namespace LastWard.Entity
                 return;
             }
 
-            if (!sees && stateTimer >= lostTargetMemory) EnterState(EntityState.LostTarget);
+            if (!sees && stateTimer >= lostTargetMemory)
+            {
+                // A hidden target inside hideDenyRadius keeps testing as fully discovered, so it
+                // would be dragged straight back into another chase on the very next frame. That
+                // Chase -> LostTarget -> Chase flip is what left it circling and re-firing its
+                // state audio over and over.
+                if (targetHidden && chased != null && chased.IsAlive)
+                    chased.ServerSetDiscovery(chaseBreakoffDiscovery);
+                EnterState(EntityState.LostTarget);
+            }
             else if (sees) stateTimer = 0f;
         }
 

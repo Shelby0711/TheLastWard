@@ -94,7 +94,7 @@ namespace LastWard.Player
         private void TryAttack()
         {
             if (HidingSpot.LocalOccupied != null) return;   // no swinging from inside a wardrobe
-            PlayerMeleeDefense.Local?.TryStrike();
+            PlayerMeleeDefense.Local?.TryThrow();
         }
     }
 }

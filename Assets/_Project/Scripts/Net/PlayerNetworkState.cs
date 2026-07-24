@@ -19,6 +19,12 @@ namespace LastWard.Net
             "lives under the player camera, which is disabled on remote copies.")]
         [SerializeField] private GameObject flashlightModel;
 
+        [Header("Entity interference")]
+        [Tooltip("The torch starts failing when something is this close. It is the only warning the " +
+            "game gives that is not a sound - and unlike a sound, you cannot tell yourself you " +
+            "imagined it.")]
+        [SerializeField] private float interferenceRange = 15f;
+
         private readonly NetworkVariable<float> pitch =
             new NetworkVariable<float>(0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
         private readonly NetworkVariable<bool> flashlightOn =
@@ -89,6 +95,52 @@ namespace LastWard.Net
         {
             flashlightOn.OnValueChanged -= OnFlashlightChanged;
             alive.OnValueChanged -= OnAliveChanged;
+        }
+
+        private float baseFlashlightIntensity = -1f;
+        private float nextEntityScan;
+        private LastWard.Entity.EntityController[] nearbyEntities;
+
+        /// <summary>
+        /// Makes the torch stutter as something closes on you. Runs on every copy, not just the
+        /// owner, so teammates see your light failing too - watching someone else's beam start to
+        /// go is worse than it happening to you.
+        ///
+        /// Absent Entities are skipped deliberately: a dormant one is not in the building, and a
+        /// torch that flickers at nothing would train players to ignore the tell entirely.
+        /// </summary>
+        private void Update()
+        {
+            if (flashlight == null) return;
+            if (baseFlashlightIntensity < 0f) baseFlashlightIntensity = flashlight.intensity;
+            if (!flashlightOn.Value) return;
+
+            if (nearbyEntities == null || Time.time >= nextEntityScan)
+            {
+                nearbyEntities = FindObjectsByType<LastWard.Entity.EntityController>(FindObjectsInactive.Exclude);
+                nextEntityScan = Time.time + 2f;
+            }
+
+            float closest = float.MaxValue;
+            foreach (var e in nearbyEntities)
+            {
+                if (e == null || e.IsDormant) continue;
+                float d = Vector3.Distance(e.transform.position, transform.position);
+                if (d < closest) closest = d;
+            }
+
+            if (closest >= interferenceRange)
+            {
+                flashlight.intensity = baseFlashlightIntensity;
+                return;
+            }
+
+            // Worse the closer it gets: an occasional dip at the edge of range, a beam that can
+            // barely hold on when it is nearly on top of you.
+            float severity = 1f - Mathf.Clamp01(closest / Mathf.Max(0.01f, interferenceRange));
+            float noise = Mathf.PerlinNoise(Time.time * (5f + severity * 22f), 0f);
+            float dip = noise < (0.25f + severity * 0.45f) ? Mathf.Lerp(1f, 0.05f, severity) : 1f;
+            flashlight.intensity = baseFlashlightIntensity * dip;
         }
 
         private void LateUpdate()

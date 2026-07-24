@@ -14,6 +14,10 @@ namespace LastWard.Net
     public class NetworkedDoor : NetworkBehaviour, IInteractable
     {
         [SerializeField] private Transform hinge;
+        [Tooltip("Optional second leaf, for double doors. Swings by secondOpenAngle - give it the " +
+            "opposite sign to openAngle and the two part in the middle.")]
+        [SerializeField] private Transform secondHinge;
+        [SerializeField] private float secondOpenAngle = -100f;
         [SerializeField] private float openAngle = 100f;
         [SerializeField] private float openSpeed = 3f;
         [Tooltip("Initial locked state on spawn. Puzzles unlock at runtime via ServerSetLocked, which drives the replicated 'locked' NetworkVariable, not this field directly.")]
@@ -37,6 +41,8 @@ namespace LastWard.Net
         private readonly NetworkVariable<bool> locked = new NetworkVariable<bool>();
         private Quaternion closedRotation;
         private Quaternion targetRotation;
+        private Quaternion secondClosedRotation;
+        private Quaternion secondTargetRotation;
         private AudioSource audioSource;
         private AudioClip creak;
         private bool stateInitialized;
@@ -47,6 +53,11 @@ namespace LastWard.Net
             if (hinge == null) hinge = transform;
             closedRotation = hinge.localRotation;
             targetRotation = closedRotation;
+            if (secondHinge != null)
+            {
+                secondClosedRotation = secondHinge.localRotation;
+                secondTargetRotation = secondClosedRotation;
+            }
 
             audioSource = gameObject.AddComponent<AudioSource>();
             audioSource.playOnAwake = false;
@@ -73,6 +84,8 @@ namespace LastWard.Net
         private void Update()
         {
             hinge.localRotation = Quaternion.Slerp(hinge.localRotation, targetRotation, Time.deltaTime * openSpeed);
+            if (secondHinge != null)
+                secondHinge.localRotation = Quaternion.Slerp(secondHinge.localRotation, secondTargetRotation, Time.deltaTime * openSpeed);
 
             // Auto-close is server-authoritative; the swing above then replicates to everyone.
             if (IsServer && autoCloseSeconds > 0f && isOpen.Value && !locked.Value
@@ -103,6 +116,10 @@ namespace LastWard.Net
         private void ApplyState(bool open)
         {
             targetRotation = open ? closedRotation * Quaternion.Euler(0f, openAngle, 0f) : closedRotation;
+            if (secondHinge != null)
+                secondTargetRotation = open
+                    ? secondClosedRotation * Quaternion.Euler(0f, secondOpenAngle, 0f)
+                    : secondClosedRotation;
             // Skip the sound on the initial spawn sync; only play on actual toggles. Opening and
             // closing are different sounds — a door heard closing somewhere you are not is one of
             // the cheapest sources of dread in the game.
@@ -113,6 +130,7 @@ namespace LastWard.Net
                     // The Entity does not open doors, it goes through them. Snap the panel fully open
                     // this frame — no gentle creak-swing — and hit it with the slam clip.
                     hinge.localRotation = targetRotation;
+                    if (secondHinge != null) secondHinge.localRotation = secondTargetRotation;
                     audioSource.PlayOneShot(GameSfx.DoorSlam);
                 }
                 else audioSource.PlayOneShot(open ? GameSfx.DoorOpen : GameSfx.DoorClose);

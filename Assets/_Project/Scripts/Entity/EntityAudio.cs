@@ -154,7 +154,7 @@ namespace LastWard.Entity
             {
                 if (Time.time >= nextChaseCry)
                 {
-                    nextChaseCry = Time.time + Random.Range(1.6f, 4.5f);
+                    nextChaseCry = Time.time + Random.Range(3.5f, 8f);
                     var cry = GameSfx.Random(GameSfx.ChaseCries);
                     if (cry != null)
                         AudioSource.PlayClipAtPoint(cry, transform.position, 0.8f);

@@ -25,8 +25,8 @@ namespace LastWard.Core
         [SerializeField] private float activeFromZ = 20f;
 
         [Header("Timing")]
-        [SerializeField] private float intervalMin = 14f;
-        [SerializeField] private float intervalMax = 34f;
+        [SerializeField] private float intervalMin = 26f;
+        [SerializeField] private float intervalMax = 55f;
 
         [Header("Placement")]
         [Tooltip("How far away an event happens. Always out of sight, never on top of the player.")]
@@ -39,8 +39,15 @@ namespace LastWard.Core
         [SerializeField] private Color redColor = new Color(1f, 0.12f, 0.08f);
 
         private float nextEvent;
+        private bool entityHunting;
         private AudioListener listener;
         private FlickeringLight[] tubes;
+
+        private void OnEnable() => GameEvents.OnEntityStateChanged += OnEntityState;
+        private void OnDisable() => GameEvents.OnEntityStateChanged -= OnEntityState;
+
+        private void OnEntityState(EntityState s) =>
+            entityHunting = s == EntityState.Chase || s == EntityState.Stare;
 
         private void Start()
         {
@@ -56,6 +63,11 @@ namespace LastWard.Core
             // Only where its presence is meant to be obvious. Earlier zones stay quiet so arriving
             // here is a change the player can feel.
             if (listener.transform.position.z < activeFromZ) return;
+
+            // Never layer a phantom on top of the real thing. While it is actually chasing or
+            // standing there watching you, the building shuts up: competing cues made both read as
+            // noise, and it is what made the effects feel constant.
+            if (entityHunting) { Schedule(); return; }
 
             if (Time.time < nextEvent) return;
             Schedule();

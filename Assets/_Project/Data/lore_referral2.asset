@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: lore_referral2
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: lore_referral2
+  displayTitle: Ophthalmology - Discharge
+  bodyText: Bilateral, complete, and permanent. No further appointments necessary.
+    Patient declined a cane. Says he knows the building better than any of us and
+    frankly, having watched him on nights, I am inclined to agree.
+  knowledgeValue: 3
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0
