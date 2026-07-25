@@ -9,10 +9,14 @@ namespace LastWard.Core
     /// some need a crowbar to lever apart.
     ///
     /// The contents are never spawned or despawned — they sit inside the shell from the start, and
-    /// opening simply swings the door out of the way. That matters for two reasons: NetworkObjects
-    /// that begin life inactive don't spawn cleanly under NGO, and with the door shut the pickups
-    /// are already unreachable because the interaction raycast hits the door panel first. So
-    /// "hidden" is enforced by geometry rather than by bookkeeping that could desync.
+    /// opening simply swings the door out of the way. NetworkObjects that begin life inactive don't
+    /// spawn cleanly under NGO, so the shell keeps them.
+    ///
+    /// Reachability, though, is enforced EXPLICITLY: while the door is shut every interactable inside
+    /// has its collider disabled. Relying on the door panel to block the interaction raycast was the
+    /// original plan and it did not hold — players could read a note straight through a closed
+    /// cupboard, because the ray found the note's collider through a seam in the shell. This is
+    /// driven entirely off the replicated open flag, so there is no state to desync.
     /// </summary>
     public class StorageContainer : NetworkBehaviour, IInteractable
     {
@@ -31,6 +35,15 @@ namespace LastWard.Core
 
         private Quaternion closedRotation;
         private Quaternion openedRotation;
+        // CUMULATIVE. Physics.OverlapBox only reports ENABLED colliders, so once a content collider
+        // is switched off it becomes invisible to the next scan. Rebuilding this list per scan
+        // therefore emptied it and the contents could never be switched back on — every fuse, key
+        // and note sealed in a container became permanently unpickable. Never drop a known content.
+        private readonly System.Collections.Generic.HashSet<Collider> contents =
+            new System.Collections.Generic.HashSet<Collider>();
+        private float nextContentScan;
+        private bool applied;
+        private bool appliedOpen;
 
         private void Awake()
         {
@@ -41,9 +54,67 @@ namespace LastWard.Core
 
         private void Update()
         {
+            // Contents are rescanned for a while after spawn: ClueSpawnShuffler moves notes and
+            // pickups into place a frame or two AFTER everything wakes up, so a single scan in Start
+            // would miss whatever landed here.
+            if (Time.timeSinceLevelLoad < 8f && Time.time >= nextContentScan)
+            {
+                nextContentScan = Time.time + 0.5f;
+                ScanForContents();
+            }
+            ApplyContentReachability(isOpen.Value);
+
             if (door == null) return;
             var target = isOpen.Value ? openedRotation : closedRotation;
             door.localRotation = Quaternion.Slerp(door.localRotation, target, Time.deltaTime * openSpeed);
+        }
+
+        /// <summary>
+        /// Interactables physically inside this shell. Found by overlapping the shell's own bounds
+        /// rather than by a hand-authored list, so it keeps working when the shuffler relocates items.
+        /// </summary>
+        /// <summary>
+        /// Adds any interactable sitting inside the shell to <see cref="contents"/>. Everything known
+        /// is switched back ON for the duration of the query, because a disabled collider cannot be
+        /// found by an overlap test — without that, the very items already being hidden would drop
+        /// out of the list and never be restored.
+        /// </summary>
+        private void ScanForContents()
+        {
+            foreach (var c in contents)
+                if (c != null) c.enabled = true;
+
+            var shell = GetComponentInChildren<Collider>();
+            if (shell != null)
+            {
+                Bounds b = shell.bounds;
+                foreach (var c in GetComponentsInChildren<Collider>()) b.Encapsulate(c.bounds);
+
+                foreach (var hit in Physics.OverlapBox(b.center, b.extents * 0.9f, Quaternion.identity,
+                             ~0, QueryTriggerInteraction.Collide))
+                {
+                    if (hit == null) continue;
+                    if (hit.transform.IsChildOf(transform)) continue;               // the shell and its door
+                    if (hit.GetComponentInParent<StorageContainer>() != null) continue;
+                    if (hit.GetComponentInParent<IInteractable>() == null) continue; // only things you use
+                    // Must actually be INSIDE, not merely brushing the shell's bounding box. A note
+                    // resting against the outside of a cupboard would otherwise be sealed away by a
+                    // container it was never in.
+                    if (!b.Contains(hit.bounds.center)) continue;
+                    contents.Add(hit);
+                }
+            }
+
+            applied = false;   // re-apply the correct state now the list has changed
+        }
+
+        private void ApplyContentReachability(bool open)
+        {
+            if (applied && appliedOpen == open) return;
+            foreach (var c in contents)
+                if (c != null) c.enabled = open;
+            applied = true;
+            appliedOpen = open;
         }
 
         public string GetPrompt()

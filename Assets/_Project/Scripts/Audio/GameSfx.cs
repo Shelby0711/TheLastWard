@@ -43,8 +43,20 @@ namespace LastWard.Audio
         /// <summary>Corridor-only: girls muttering somewhere you are not.</summary>
         public static AudioClip GirlsMumbling => Get("girls-mumbling-in-the-corridor");
 
-        /// <summary>Death stingers. Randomised so repeated deaths never land the same way.</summary>
-        public static AudioClip[] Jumpscares => GetMany("jumpscare01", "jumpscare02", "jumpscare03");
+        // --- The Manager (first floor) ---
+        /// <summary>Its constant whisper, heard long before it is seen.</summary>
+        /// <summary>Starts once the players begin taking the corridor apart. See ChantingDirector.</summary>
+        public static AudioClip DemonChanting => Get("demon_chanting");
+        public static AudioClip ManagerWhisper => Get("Entity_Whispering");
+        /// <summary>Its movement across surfaces - dry, wrong, not footsteps.</summary>
+        public static AudioClip ManagerMovement => Get("Entity_movement_SFX");
+        /// <summary>The scramble when it repositions in a hurry.</summary>
+        public static AudioClip ManagerScramble => Get("Entity_Running_Around");
+
+        /// <summary>Death stingers. Primary_Jumpscare is the loudest/signature hit; the numbered
+        /// ones give variety so repeated deaths never land the same way.</summary>
+        public static AudioClip[] Jumpscares =>
+            GetMany("Primary_Jumpscare", "jumpscare01", "jumpscare02", "jumpscare03");
 
         /// <summary>Fired repeatedly during a chase — the building screaming along with it.</summary>
         public static AudioClip[] ChaseCries => GetMany(

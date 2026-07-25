@@ -86,6 +86,23 @@ namespace LastWard.Entity
         [SerializeField] private float sightingDistanceMax = 20f;
         [Tooltip("Longest it will hold a staged appearance if the player simply never looks away.")]
         [SerializeField] private float appearanceHoldMax = 14f;
+        [Tooltip("The Receptionist's world is the ground floor. It will not appear, chase or be " +
+            "parked above this height — the upper floors belong to the Manager. Anything standing " +
+            "higher than this is 'upstairs' as far as it is concerned.")]
+        [SerializeField] private float territoryMaxY = 2.5f;
+
+        [Header("Corridor territory")]
+        [Tooltip("From the Service Corridor on, this is its ground and it does not intend to let " +
+            "anyone off it. Every noise you make counts for this much more once you are in it.")]
+        [SerializeField] private float territoryNoiseMultiplier = 2.4f;
+        [Tooltip("Hearing reach in its territory. It notices things happening much further away.")]
+        [SerializeField] private float territoryHearingBonus = 10f;
+        [Tooltip("Seconds you may keep moving before your own footfalls start giving you away. " +
+            "Crossing the corridor in one continuous go is what it is listening for - move in " +
+            "short bursts and pause, and it stays a rumour.")]
+        [SerializeField] private float sustainedMoveGrace = 3.5f;
+        [Tooltip("Meter per second once you have been moving past the grace. Sprinting doubles it.")]
+        [SerializeField] private float sustainedMoveFill = 0.075f;
         [Tooltip("While absent it keeps at least this far from every player. If someone wanders " +
             "closer it relocates (unseen) rather than letting itself be walked up to.")]
         [SerializeField] private float absentMinDistance = 22f;
@@ -207,6 +224,9 @@ namespace LastWard.Entity
         private bool parkedWhileAbsent;   // has it already teleported out of the way this absence?
         private Renderer[] visualRenderers;
         private float stunnedUntil;
+        // Per-player continuous-movement tracking, for the corridor's "keep still" pressure.
+        private readonly Dictionary<Transform, float> moveTime = new Dictionary<Transform, float>();
+        private readonly Dictionary<Transform, Vector3> lastSeenPos = new Dictionary<Transform, Vector3>();
         private bool jumpscareRunning;
 
         private readonly List<Transform> players = new List<Transform>();
@@ -326,6 +346,15 @@ namespace LastWard.Entity
 
             stateTimer += Time.deltaTime;
             runTime += Time.deltaTime;
+
+            // Safety net: if it has somehow climbed out of its territory (e.g. chased a player up
+            // before the break-off fired), teleport it back down to a waypoint and go absent, so it
+            // is never found loitering on the first floor where only the Manager belongs.
+            if (transform.position.y > territoryMaxY && waypoints != null && waypoints.Length > 0)
+            {
+                var home = waypoints[FarthestWaypointFromPlayers()];
+                if (home != null) { ServerTeleport(home.position); EnterState(EntityState.Dormant); return; }
+            }
 
             // A brief appearance expires back into absence — unless it is chasing, which always
             // plays out.
@@ -492,6 +521,30 @@ namespace LastWard.Entity
                 // Proximity sense: close enough and it knows, whatever it happens to be facing.
                 // Without this the Entity is a security camera on legs — it walked past players
                 // standing in the open simply because they were not inside its cone.
+                // Its territory: from the Service Corridor onward. Here it stops being a rumour
+                // and becomes something actively listening for you to cross its floor.
+                if (InTerritory(player.position))
+                {
+                    Vector3 prev = lastSeenPos.TryGetValue(player, out var lp) ? lp : player.position;
+                    float moved = Vector3.Distance(prev, player.position);
+                    lastSeenPos[player] = player.position;
+
+                    float held = moveTime.TryGetValue(player, out var mt) ? mt : 0f;
+                    // Real travel, not jitter. Standing still bleeds the timer down fast, so
+                    // stopping genuinely resets the pressure rather than merely pausing it.
+                    if (moved > 0.02f) held += Time.deltaTime;
+                    else held -= Time.deltaTime * 2.5f;
+                    held = Mathf.Clamp(held, 0f, sustainedMoveGrace * 3f);
+                    moveTime[player] = held;
+
+                    if (held > sustainedMoveGrace && !pns.IsHidden)
+                    {
+                        // Crouching still helps: it is the stealth verb everywhere else too.
+                        float f = sustainedMoveFill * (pns.IsCrouching ? crouchSenseMultiplier : 1f);
+                        current += f * Time.deltaTime;
+                    }
+                }
+
                 float senseRadius = effectivelyHidden ? hiddenSenseRadius : proximitySenseRadius;
                 // Crouching shrinks how close it can sense you and slows how fast it reads you.
                 // Previously crouching did nothing for stealth at all, so the meter climbed while
@@ -884,6 +937,7 @@ namespace LastWard.Entity
                 float d = Random.Range(sightingDistanceMin, sightingDistanceMax);
                 Vector3 c = player.position + new Vector3(Mathf.Cos(ang) * d, 0f, Mathf.Sin(ang) * d);
                 if (!NavMesh.SamplePosition(c, out var hit, 3f, NavMesh.AllAreas)) continue;
+                if (hit.position.y > territoryMaxY) continue;   // stays on the ground floor
 
                 Vector3 mid = hit.position + Vector3.up * 1f;
                 if (Physics.Linecast(eye, mid, out var blocker, ~0, QueryTriggerInteraction.Ignore)
@@ -994,6 +1048,15 @@ namespace LastWard.Entity
             if (target.TryGetComponent<PlayerNetworkState>(out var chased) && chased.IsAlive
                 && chased.Discovery < chaseFearFloor)
                 chased.ServerSetDiscovery(chaseFearFloor);
+
+            // Ran upstairs? That is out of its territory — it gives up the meter and breaks off
+            // rather than following you onto the Manager's floor.
+            if (target.position.y > territoryMaxY)
+            {
+                if (chased != null && chased.IsAlive) chased.ServerSetDiscovery(chaseBreakoffDiscovery);
+                EnterState(EntityState.Withdraw);
+                return;
+            }
 
             float distance = Vector3.Distance(transform.position, target.position);
             // The jumpscare is the moment it catches you at the end of a chase — the only way to
@@ -1403,9 +1466,27 @@ namespace LastWard.Entity
                 if (client.PlayerObject != null) players.Add(client.PlayerObject.transform);
         }
 
+        [Tooltip("Z at which its territory begins — the Service Corridor's south end. Everything " +
+            "before this (Exterior, Lobby, Ward) stays at normal sensitivity.")]
+        [SerializeField] private float territoryFromZ = 20f;
+
+        /// <summary>
+        /// Is this POSITION inside the Entity's territory? Deliberately positional, not a progress
+        /// flag: keying it to the objective stage meant that once anyone reached the corridor the
+        /// heightened sensitivity applied everywhere, including back in the Lobby and the Exterior.
+        /// Its territory is a place, so walking back out of the corridor genuinely relieves the
+        /// pressure. Bounded above too, since the upper floors belong to the Manager.
+        /// </summary>
+        private bool InTerritory(Vector3 position) =>
+            position.z >= territoryFromZ && position.y <= territoryMaxY;
+
         private void OnNoiseHeard(Vector3 position, float radius, NoiseSource source)
         {
-            if (Vector3.Distance(transform.position, position) > radius + hearingRadius) return;
+            // Judged at the NOISE, so a door slammed in the Lobby is a Lobby-loudness event even
+            // if the Entity itself happens to be standing in the corridor.
+            bool noiseInTerritory = InTerritory(position);
+            float reach = hearingRadius + (noiseInTerritory ? territoryHearingBonus : 0f);
+            if (Vector3.Distance(transform.position, position) > radius + reach) return;
 
             // Noise raises the meter of whoever made it, even through walls and with no line of
             // sight. Sprinting, slamming doors and working puzzles are choices with a cost now,
@@ -1422,6 +1503,10 @@ namespace LastWard.Entity
                 _ => 0.05f,
             };
             bump *= 1f + Progress * 0.5f;
+            // In its own territory every sound is worth far more. This is the whole character of
+            // the corridor: it is not hunting a route any more, it is listening for you to make a
+            // mistake, and it does not intend to let anyone off this floor.
+            if (noiseInTerritory) bump *= territoryNoiseMultiplier;
 
             foreach (var player in players)
             {

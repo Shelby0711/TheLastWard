@@ -53,6 +53,46 @@ namespace LastWard.EditorTools
             foreach (var c in go.GetComponentsInChildren<Collider>(true)) UnityObject.DestroyImmediate(c);
         }
 
+        /// <summary>
+        /// Gives a placed prop physical presence: one fitted BoxCollider on its root, plus a carving
+        /// NavMeshObstacle once it is big enough to matter.
+        ///
+        /// Imported colliders are still stripped on the way in (see <see cref="StripColliders"/>) -
+        /// mesh colliders off downloaded art are unpredictable and expensive. A single measured box
+        /// is cheap, behaves, and is derived from the model's real bounds rather than guessed.
+        ///
+        /// The NavMeshObstacle is the half that stops the Entity standing inside the furniture: the
+        /// NavMesh is baked before the art pass runs, so the bake knows nothing about any of this.
+        /// Carving lets a prop cut the walkable surface at runtime instead, with no re-bake.
+        /// </summary>
+        public static void MakeSolid(GameObject go, float minObstacleSize = 0.45f)
+        {
+            if (go == null) return;
+            if (!TryGetBounds(go, out var b) || b.size.sqrMagnitude < 0.0001f) return;
+
+            // Bounds are world-space; the collider is local, so convert through the transform.
+            var box = go.GetComponent<BoxCollider>();
+            if (box == null) box = go.AddComponent<BoxCollider>();
+            box.center = go.transform.InverseTransformPoint(b.center);
+            Vector3 ls = go.transform.lossyScale;
+            box.size = new Vector3(
+                b.size.x / Mathf.Max(0.0001f, Mathf.Abs(ls.x)),
+                b.size.y / Mathf.Max(0.0001f, Mathf.Abs(ls.y)),
+                b.size.z / Mathf.Max(0.0001f, Mathf.Abs(ls.z)));
+
+            // Only things you could actually walk into are worth carving the NavMesh for. Doing it
+            // for every bucket and picture frame would be a lot of carving for no behaviour change.
+            float footprint = Mathf.Max(b.size.x, b.size.z);
+            if (footprint < minObstacleSize || b.size.y < 0.3f) return;
+
+            var obstacle = go.GetComponent<UnityEngine.AI.NavMeshObstacle>();
+            if (obstacle == null) obstacle = go.AddComponent<UnityEngine.AI.NavMeshObstacle>();
+            obstacle.shape = UnityEngine.AI.NavMeshObstacleShape.Box;
+            obstacle.center = box.center;
+            obstacle.size = box.size;
+            obstacle.carving = true;
+        }
+
         // --- measuring / fitting ---
 
         public static bool TryGetBounds(GameObject go, out Bounds bounds)
@@ -118,6 +158,51 @@ namespace LastWard.EditorTools
             var p = go.transform.parent.lossyScale;
             if (Mathf.Abs(p.x) < 0.0001f || Mathf.Abs(p.y) < 0.0001f || Mathf.Abs(p.z) < 0.0001f) return;
             go.transform.localScale = new Vector3(1f / p.x, 1f / p.y, 1f / p.z);
+        }
+
+        /// <summary>
+        /// Turns a character model into a near-black silhouette with two glowing eyes — the single
+        /// biggest quality lever for a free-asset creature. An unlit dark body hides every scrap of
+        /// texture detail and reads instantly at distance; two bright unlit spheres are the only
+        /// thing the dark gives back. It makes the Manager unmistakably NOT the Receptionist without
+        /// depending on the model being good.
+        ///
+        /// Eyes are parented to the root (scale 1), positioned from the model's bounds toward its
+        /// FORWARD face. If they come out on the back of its head, the spawn is facing the wrong way
+        /// — flip the root's yaw, do not fight it here.
+        /// </summary>
+        public static void MakeSilhouetteWithEyes(GameObject visual, Color eyeColor, float eyeDiameter = 0.07f)
+        {
+            if (visual == null) return;
+
+            var body = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            body.SetColor("_BaseColor", new Color(0.015f, 0.015f, 0.02f));  // not pure #000, which reads as a hole
+            foreach (var r in visual.GetComponentsInChildren<Renderer>(true))
+                if (r != null) r.sharedMaterial = body;
+
+            if (!TryGetBounds(visual, out var b)) return;
+
+            var eyeMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            eyeMat.SetColor("_BaseColor", eyeColor);   // unlit => always shows full colour = glows in the dark
+
+            Transform anchor = visual.transform.parent != null ? visual.transform.parent : visual.transform;
+            Vector3 fwd = anchor.forward;
+            Vector3 right = anchor.right;
+            float eyeY = b.max.y - b.size.y * 0.12f;                 // just below the crown
+            Vector3 face = new Vector3(b.center.x, eyeY, b.center.z) + fwd * (b.size.z * 0.42f);
+            float spacing = Mathf.Max(0.05f, b.size.x * 0.14f);
+            float scaleInParent = eyeDiameter / Mathf.Max(0.0001f, anchor.lossyScale.x);
+
+            foreach (float sgn in new[] { -1f, 1f })
+            {
+                var eye = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                eye.name = "Eye";
+                UnityObject.DestroyImmediate(eye.GetComponent<Collider>());
+                eye.transform.SetParent(anchor, true);
+                eye.transform.position = face + right * (sgn * spacing);
+                eye.transform.localScale = Vector3.one * scaleInParent;
+                eye.GetComponent<Renderer>().sharedMaterial = eyeMat;
+            }
         }
 
         // --- pulling individual props out of multi-prop packs ---
@@ -942,6 +1027,98 @@ namespace LastWard.EditorTools
             Debug.Log($"[ArtPass] Entity animator: controller='{controller.name}' " +
                       $"avatar={(animator.avatar != null ? animator.avatar.name : "NONE")} " +
                       $"valid={(animator.avatar != null && animator.avatar.isValid)}");
+        }
+
+        /// <summary>
+        /// Imports a rig FBX as Generic and returns its generated Avatar. The Manager's animation
+        /// clips live in SEPARATE FBX files, so — exactly like the Watcher's retarget problem — they
+        /// only bind if they share this rig's skeleton — see ConfigureClip for how that is done.
+        /// </summary>
+        public static Avatar ConfigureGenericRig(string rigRelPath)
+        {
+            var imp = AssetImporter.GetAtPath(ArtRoot + rigRelPath) as ModelImporter;
+            if (imp == null) { Debug.LogWarning($"[ArtPass] No ModelImporter for {rigRelPath}."); return null; }
+            imp.animationType = ModelImporterAnimationType.Generic;
+            imp.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            imp.SaveAndReimport();
+            foreach (var a in AssetDatabase.LoadAllAssetsAtPath(ArtRoot + rigRelPath))
+                if (a is Avatar av) return av;
+            return null;
+        }
+
+        /// <summary>
+        /// Imports an animation FBX as Generic and sets its clip's loop flag. Generic clips bind to
+        /// the target rig by transform PATH, so as long as the animation FBX and the rig share the
+        /// same skeleton hierarchy (they do — same source), the clip retargets with no explicit
+        /// avatar copy. (ModelImporterAvatarSetup.CopyFromOtherAvatar is not present in this Unity
+        /// version, and path-based generic binding does not need it.)
+        /// </summary>
+        public static void ConfigureClip(string clipRelPath, bool loop)
+        {
+            var imp = AssetImporter.GetAtPath(ArtRoot + clipRelPath) as ModelImporter;
+            if (imp == null) return;
+            imp.animationType = ModelImporterAnimationType.Generic;
+            var clips = imp.defaultClipAnimations;
+            if (clips.Length > 0) { clips[0].loopTime = loop; imp.clipAnimations = clips; }
+            imp.SaveAndReimport();
+        }
+
+        /// <summary>
+        /// The Manager's animator: a simple Idle (looping) with a one-shot Retreat driven by a
+        /// "Retreat" trigger — enough for increment 2 (perch, then crawl back into the dark and
+        /// vanish when a player reaches its floor). Returns the wired Animator.
+        /// </summary>
+        public static Animator SetupManagerAnimator(GameObject visual, string rigRelPath,
+            string idleRel, string retreatRel, string controllerName)
+        {
+            var avatar = ConfigureGenericRig(rigRelPath);
+            ConfigureClip(idleRel, loop: true);
+            ConfigureClip(retreatRel, loop: false);
+
+            var idle = FindAnimationClip(ArtRoot + idleRel);
+            var retreat = FindAnimationClip(ArtRoot + retreatRel);
+            if (idle == null)
+            {
+                Debug.LogWarning($"[ArtPass] Manager idle clip not found in {idleRel} — will stand in bind pose.");
+                return visual.GetComponentInChildren<Animator>();
+            }
+
+            if (!AssetDatabase.IsValidFolder("Assets/_Project/Animations"))
+                AssetDatabase.CreateFolder("Assets/_Project", "Animations");
+            string ctrlPath = $"Assets/_Project/Animations/{controllerName}.controller";
+            if (AssetDatabase.LoadAssetAtPath<UnityEditor.Animations.AnimatorController>(ctrlPath) != null)
+                AssetDatabase.DeleteAsset(ctrlPath);
+            var controller = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPath(ctrlPath);
+            if (controller.layers.Length == 0) controller.AddLayer("Base");
+            var sm = controller.layers[0].stateMachine;
+            controller.AddParameter("Retreat", AnimatorControllerParameterType.Trigger);
+
+            var idleState = sm.AddState("Idle");
+            idleState.motion = idle;
+            sm.defaultState = idleState;
+            if (retreat != null)
+            {
+                var rs = sm.AddState("Retreat");
+                rs.motion = retreat;
+                var tr = idleState.AddTransition(rs);
+                tr.hasExitTime = false;
+                tr.duration = 0.15f;
+                tr.AddCondition(UnityEditor.Animations.AnimatorConditionMode.If, 0f, "Retreat");
+            }
+            EditorUtility.SetDirty(controller);
+
+            var animator = visual.GetComponent<Animator>() ?? visual.GetComponentInChildren<Animator>(true);
+            if (animator == null) animator = visual.AddComponent<Animator>();
+            animator.runtimeAnimatorController = controller;
+            animator.applyRootMotion = false;
+            animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            if (avatar != null) animator.avatar = avatar;
+            foreach (var sk in visual.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                sk.updateWhenOffscreen = true;
+
+            Debug.Log($"[ArtPass] Manager animator: idle='{idle.name}' retreat='{(retreat != null ? retreat.name : "NONE")}' " +
+                      $"avatar={(avatar != null ? avatar.name : "NONE")}");
+            return animator;
         }
 
         /// <summary>First AnimationClip inside a model whose name contains <paramref name="nameContains"/>.</summary>

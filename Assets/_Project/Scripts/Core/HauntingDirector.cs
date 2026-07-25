@@ -83,7 +83,10 @@ namespace LastWard.Core
                            Random.Range(eventDistanceMin, eventDistanceMax);
             Vector3 at = origin + new Vector3(flat.x, Random.Range(-0.5f, 1.5f), flat.y);
 
-            switch (Random.Range(0, 5))
+            // Girls mumbling is weighted heavily - it is the corridor's signature, meant to be
+            // heard often enough to become "is someone down there?", not a once-a-run rarity.
+            int roll = Random.Range(0, 8);
+            switch (roll)
             {
                 case 0:
                     // Something heavy walking, somewhere ahead.
@@ -98,8 +101,12 @@ namespace LastWard.Core
                                              : GameSfx.Get("haunted-ghost-baby-crying"), at, 0.7f);
                     break;
                 case 3:
-                    // Girls muttering somewhere down the corridor. Nobody is there.
-                    Play(GameSfx.GirlsMumbling, at, 0.75f);
+                case 5:
+                case 6:
+                case 7:
+                    // Girls muttering somewhere down the corridor. Nobody is there. Weighted so it
+                    // recurs - roughly half of all corridor events.
+                    Play(GameSfx.GirlsMumbling, at, 0.8f);
                     break;
                 default:
                     Play(GameSfx.Get("deep-evil-male-laugh"), at, 0.65f);

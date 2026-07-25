@@ -1,4 +1,5 @@
 using System.Collections;
+using LastWard.Audio;
 using LastWard.Core;
 using UnityEngine;
 
@@ -63,7 +64,14 @@ namespace LastWard.Puzzles
 
         public string GetPrompt() => puzzle != null && puzzle.IsPowered ? $"Flip {label}" : "No power";
         public bool CanInteract(ulong playerId) => puzzle != null && puzzle.IsPowered && !puzzle.IsSolved;
-        public void Interact(ulong playerId) => puzzle.RequestFlipBreakerServerRpc(breakerIndex);
+        public void Interact(ulong playerId)
+        {
+            // The physical click, at the switch, the instant you press it - feedback lands before
+            // the server has even confirmed whether it was the right one.
+            var flip = GameSfx.SwitchFlip;
+            if (flip != null) AudioSource.PlayClipAtPoint(flip, transform.position, 0.8f);
+            puzzle.RequestFlipBreakerServerRpc(breakerIndex);
+        }
 
         private void OnCorrectMaskChanged(int mask) => ApplyCorrectMask(mask);
 

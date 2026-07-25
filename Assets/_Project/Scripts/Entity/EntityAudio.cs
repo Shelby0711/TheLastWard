@@ -27,7 +27,6 @@ namespace LastWard.Entity
         [SerializeField] private float droneVolume = 0.32f;
         [SerializeField] private float movementVolume = 0.55f;
         [SerializeField] private float voiceVolume = 0.6f;
-        [SerializeField] private float heartbeatVolume = 0.65f;
         [Tooltip("The Entity's own breathing. Short range on purpose - it should only reach you when " +
             "it is genuinely close, so hearing it at all means it is already too late to be casual.")]
         [SerializeField] private float breathVolume = 0.5f;
@@ -35,7 +34,6 @@ namespace LastWard.Entity
         private AudioSource drone;
         private AudioSource movement;
         private AudioSource voice;
-        private AudioSource heartbeat;
         private AudioSource whisper;
         private AudioSource breath;
 
@@ -54,11 +52,7 @@ namespace LastWard.Entity
 
             voice = Add(null, 0f, spatial: true, range: 24f);
 
-            // 2D — the player's own pulse, not a sound in the room.
-            heartbeat = Add(GameSfx.Heartbeat, 0f, spatial: false, range: 0f);
-            Play(heartbeat);
-
-            whisper = Add(GameSfx.Whisper, 0f, spatial: true, range: 20f);
+                whisper = Add(GameSfx.Whisper, 0f, spatial: true, range: 20f);
             Play(whisper);
 
             breath = Add(GameSfx.EntityBreathing, 0f, spatial: true, range: 15f);
@@ -141,12 +135,6 @@ namespace LastWard.Entity
 
             if (voice != null)
                 voice.volume = Mathf.MoveTowards(voice.volume, voice.isPlaying ? voiceVolume : 0f, Time.deltaTime * 1.2f);
-            if (heartbeat != null)
-            {
-                heartbeat.volume = Mathf.MoveTowards(heartbeat.volume, chasing ? heartbeatVolume : 0f, Time.deltaTime * 1.2f);
-                if (heartbeat.volume <= 0.005f && heartbeat.isPlaying) heartbeat.Pause();
-                else if (heartbeat.volume > 0.005f && !heartbeat.isPlaying) heartbeat.UnPause();
-            }
 
             // Cries and laughter pile in during a chase — irregularly, so it never settles into a
             // rhythm the player can tune out.

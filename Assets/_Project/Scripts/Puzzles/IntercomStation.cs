@@ -16,6 +16,10 @@ namespace LastWard.Puzzles
         [SerializeField] private int stationIndex;
         [SerializeField] private string label = "station";
         [SerializeField] private float wrongFlashSeconds = 0.4f;
+        [Tooltip("Inventory item needed to work this one. Empty means no key required. The corridor " +
+            "locks each want their own key, so the door cannot be opened until all three have been " +
+            "found - and even then, only in the right order.")]
+        [SerializeField] private string requiredItemId = "";
 
         private static readonly Color DefaultBase = new Color(0.15f, 0.15f, 0.05f);
         private static readonly Color DefaultEmission = new Color(0.5f, 0.45f, 0.1f);
@@ -29,9 +33,15 @@ namespace LastWard.Puzzles
 
         private void Awake()
         {
-            rend = GetComponent<Renderer>();
+            // Falls back to a child: the corridor locks are a real mesh parented under the station.
+            rend = GetComponent<Renderer>() ?? GetComponentInChildren<Renderer>();
             mpb = new MaterialPropertyBlock();
         }
+
+        /// <summary>Does the local player hold this lock's key?</summary>
+        private bool HasKey() => string.IsNullOrEmpty(requiredItemId) ||
+            (LastWard.Player.PlayerInventory.Local != null &&
+             LastWard.Player.PlayerInventory.Local.HasItem(requiredItemId));
 
         private void OnEnable()
         {
@@ -54,8 +64,14 @@ namespace LastWard.Puzzles
             puzzle.WrongStationPressed -= OnWrongStationPressed;
         }
 
-        public string GetPrompt() => puzzle != null && puzzle.IsSolved ? $"{label} (active)" : $"Activate {label}";
-        public bool CanInteract(ulong playerId) => puzzle != null && !puzzle.IsSolved;
+        public string GetPrompt()
+        {
+            if (puzzle == null) return label;
+            if (puzzle.IsSolved) return $"{label} (open)";
+            return HasKey() ? $"Unlock {label}" : $"{label} - locked (key missing)";
+        }
+
+        public bool CanInteract(ulong playerId) => puzzle != null && !puzzle.IsSolved && HasKey();
         public void Interact(ulong playerId) => puzzle.RequestActivateServerRpc(stationIndex);
 
         private void OnCorrectMaskChanged(int mask) => ApplyCorrectMask(mask);

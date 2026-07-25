@@ -34,6 +34,17 @@ namespace LastWard.Entity
             "the intimate finish plays at its authored pace regardless of movement.")]
         [SerializeField] private float catchSeconds = 7f;
 
+        [Header("Stutter")]
+        [Tooltip("Renders the Entity at this framerate during its tense, visible moments while the " +
+            "body still moves through space at full rate. The mismatch - a form sliding smoothly " +
+            "but twitching between held poses - is deeply wrong to watch and costs nothing. The FF " +
+            "clips are authored at 24fps so this divides cleanly.")]
+        [SerializeField] private float stutterFps = 8f;
+        [Tooltip("Auto-stutter during Chase/Stare. OFF by default: the ground-floor Receptionist is " +
+            "meant to read as smooth and composed. The twitch belongs to the Manager, which turns it " +
+            "on permanently via SetForceStutter — so the two entities move in visibly different ways.")]
+        [SerializeField] private bool stutterInTenseStates = false;
+
         private static readonly int LocomotionParam = Animator.StringToHash("Locomotion");
         private static readonly int CatchParam = Animator.StringToHash("Catch");
 
@@ -41,23 +52,48 @@ namespace LastWard.Entity
         private float smoothedSpeed;
         private float locomotion;
         private bool isChasing;
+        private EntityState state = EntityState.Patrol;
         private float catchUntil = -1f;
+        private float stutterAccum;
+        private bool forceStutter;   // for entities that should ALWAYS twitch (the Manager)
+        private bool hasLocomotion, hasCatch;
 
         private void Awake()
         {
             if (animator == null) animator = GetComponentInChildren<Animator>();
             lastPosition = transform.position;
+            // The Manager runs a simpler controller with neither parameter. Setting a parameter that
+            // does not exist spams warnings every frame, so check once and guard.
+            if (animator != null)
+                foreach (var p in animator.parameters)
+                {
+                    if (p.nameHash == LocomotionParam) hasLocomotion = true;
+                    else if (p.nameHash == CatchParam) hasCatch = true;
+                }
         }
 
         private void OnEnable() => GameEvents.OnEntityStateChanged += OnStateChanged;
-        private void OnDisable() => GameEvents.OnEntityStateChanged -= OnStateChanged;
 
-        private void OnStateChanged(EntityState next) => isChasing = next == EntityState.Chase;
+        private void OnDisable()
+        {
+            GameEvents.OnEntityStateChanged -= OnStateChanged;
+            // Never leave the Animator manually-disabled behind us, or it freezes on despawn.
+            if (animator != null) animator.enabled = true;
+        }
+
+        private void OnStateChanged(EntityState next)
+        {
+            state = next;
+            isChasing = next == EntityState.Chase;
+        }
+
+        /// <summary>Forces the stutter on regardless of state, for an entity built around it.</summary>
+        public void SetForceStutter(bool value) => forceStutter = value;
 
         /// <summary>Fires the one-shot catch animation. Called when the jumpscare reaches contact.</summary>
         public void PlayCatch()
         {
-            if (animator == null) return;
+            if (animator == null || !hasCatch) return;
             animator.SetTrigger(CatchParam);
             catchUntil = Time.time + catchSeconds;
         }
@@ -77,18 +113,50 @@ namespace LastWard.Entity
             // Idle when it stops. Lerped so idle/walk/run cross-fade instead of snapping.
             float targetLoco = isChasing ? 2f : Mathf.Clamp01(smoothedSpeed / Mathf.Max(0.01f, clipAuthoredSpeed));
             locomotion = Mathf.Lerp(locomotion, targetLoco, Time.deltaTime * smoothing);
-            animator.SetFloat(LocomotionParam, locomotion);
+            if (hasLocomotion) animator.SetFloat(LocomotionParam, locomotion);
 
-            // Hold 1x during the catch (authored pace); otherwise match travel while moving and fall
-            // back to 1x when idle so the idle breathing isn't dragged to a crawl.
+            // Playback rate: authored pace during the catch, otherwise matched to travel while
+            // moving and eased back to 1x at rest so the idle breathing is not dragged to a crawl.
+            float playback;
             if (Time.time < catchUntil)
             {
-                animator.speed = 1f;
-                return;
+                playback = 1f;
             }
-            float moveMatch = Mathf.Clamp(smoothedSpeed / Mathf.Max(0.01f, clipAuthoredSpeed),
-                minPlaybackSpeed, maxPlaybackSpeed);
-            animator.speed = Mathf.Lerp(1f, moveMatch, Mathf.Clamp01(locomotion));
+            else
+            {
+                float moveMatch = Mathf.Clamp(smoothedSpeed / Mathf.Max(0.01f, clipAuthoredSpeed),
+                    minPlaybackSpeed, maxPlaybackSpeed);
+                playback = Mathf.Lerp(1f, moveMatch, Mathf.Clamp01(locomotion));
+            }
+
+            // Never stutter through the catch - the intimate beat plays clean.
+            bool stutter = Time.time >= catchUntil &&
+                (forceStutter || (stutterInTenseStates &&
+                    (state == EntityState.Chase || state == EntityState.Stare)));
+
+            if (stutter)
+            {
+                // Take the Animator off the automatic clock and hand-step it in fixed chunks, so it
+                // renders at stutterFps while everything else - position, the world - runs at full
+                // rate. Playback is applied through the chunk SIZE, so animator.speed stays 1 and
+                // nothing scales it twice.
+                animator.speed = 1f;
+                if (animator.enabled) { animator.enabled = false; stutterAccum = 0f; }
+
+                stutterAccum += Time.deltaTime;
+                float renderStep = 1f / Mathf.Max(1f, stutterFps);
+                int guard = 0;
+                while (stutterAccum >= renderStep && guard++ < 4)
+                {
+                    animator.Update(renderStep * playback);
+                    stutterAccum -= renderStep;
+                }
+            }
+            else
+            {
+                if (!animator.enabled) animator.enabled = true;   // back to smooth 60fps
+                animator.speed = playback;
+            }
         }
     }
 }

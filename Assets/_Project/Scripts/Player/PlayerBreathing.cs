@@ -43,12 +43,17 @@ namespace LastWard.Player
         [SerializeField] private float idleVolume = 0.32f;
         [SerializeField] private float walkVolume = 0.18f;
         [SerializeField] private float heavyVolume = 0.7f;
+        [Tooltip("Your own pulse, riding on top of the heavy breathing. It rises with the same heavy " +
+            "level, so it pounds whenever you are winded or frightened - which the chase keeps pinned " +
+            "high, so it covers the whole chase sequence too.")]
+        [SerializeField] private float heartbeatVolume = 0.6f;
         [Tooltip("Cross-fade rate. Low so layers blend rather than switch.")]
         [SerializeField] private float blendSpeed = 0.7f;
 
         private AudioSource idle;    // normal breathing — standing still
         private AudioSource walk;    // normal breathing — moving, quieter
         private AudioSource heavy;   // winded or frightened
+        private AudioSource heartbeat;   // your pulse, rising with the heavy layer
 
         /// <summary>0 = rested, 1 = fully winded. Rises while sprinting, bleeds off afterwards.</summary>
         private float exertion;
@@ -58,6 +63,7 @@ namespace LastWard.Player
             idle = CreateLayer(GameSfx.BreathingIdle);
             walk = CreateLayer(GameSfx.BreathingWalk);
             heavy = CreateLayer(GameSfx.BreathingHeavy);
+            heartbeat = CreateLayer(GameSfx.Heartbeat);
         }
 
         private AudioSource CreateLayer(AudioClip clip)
@@ -84,6 +90,7 @@ namespace LastWard.Player
                 Blend(heavy, 0f);
                 Blend(walk, 0f);
                 Blend(idle, 0f);
+                Blend(heartbeat, 0f);
                 return;
             }
 
@@ -118,6 +125,8 @@ namespace LastWard.Player
             Blend(heavy, heavyLevel * heavyVolume);
             Blend(walk, walkLevel * walkVolume);
             Blend(idle, idleLevel * idleVolume);
+            // Pulse tracks the heavy layer, so it is loudest exactly when you are winded or hunted.
+            Blend(heartbeat, heavyLevel * heartbeatVolume);
         }
 
         private void Blend(AudioSource source, float target)
