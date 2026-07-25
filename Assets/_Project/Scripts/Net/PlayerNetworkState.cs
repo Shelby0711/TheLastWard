@@ -178,6 +178,19 @@ namespace LastWard.Net
             if (IsOwner) flashlightOn.Value = !flashlightOn.Value;
         }
 
+        /// <summary>
+        /// Puts a carried item back on the floor. Lives here rather than on PlayerInventory because
+        /// that is a plain MonoBehaviour and cannot carry an RPC.
+        /// </summary>
+        public void RequestDrop(string itemId, Vector3 at)
+        {
+            if (IsOwner) DropServerRpc(itemId, at);
+        }
+
+        [ServerRpc]
+        private void DropServerRpc(string itemId, Vector3 at) =>
+            NetworkedPickup.ServerDropItem(itemId, at);
+
         /// <summary>Server-only. The Entity calls this when it catches this player.</summary>
         public void ServerKill()
         {

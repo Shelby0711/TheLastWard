@@ -151,6 +151,10 @@ namespace LastWard.EditorTools
 
             // Hold V to stop breathing. Capacity depends on how hard you were working when you
             // started, so sprinting to cover costs you the seconds you then need to wait it out.
+            // Five bars, about a minute each — but only if the torch is switched off between uses.
+            var battery = root.AddComponent<FlashlightBattery>();
+            SetRef(battery, "state", netState);
+
             var breathHold = root.AddComponent<PlayerBreathHold>();
             SetRef(breathHold, "motor", motor);
             SetRef(breathHold, "state", netState);
@@ -489,17 +493,29 @@ namespace LastWard.EditorTools
         /// in mid-air; this puts them on the floor, or on the crate or table that happens to be under
         /// them, without anyone hand-tuning a Y per item.
         /// </summary>
-        public static Vector3 DropToSurface(Vector3 position, float restOffset = 0.06f)
+        public static Vector3 DropToSurface(Vector3 position, float fallbackY = 0f, float restOffset = 0.02f)
         {
-            if (Physics.Raycast(position + Vector3.up * 2.5f, Vector3.down, out var hit, 8f,
+            // Colliders created earlier in the same build pass are not queryable until the physics
+            // scene is told about them - in the Editor nothing steps physics for us, so the raycast
+            // silently found nothing and every key kept the guessed height it came in with.
+            Physics.SyncTransforms();
+
+            // Started only just above the intended spot, and kept short. Casting from 3m up meant
+            // starting ABOVE the 3m room ceiling, so the ray hit the ceiling slab from above and
+            // every key was neatly placed on the roof of the building.
+            if (Physics.Raycast(position + Vector3.up * 0.4f, Vector3.down, out var hit, 2.5f,
                     ~0, QueryTriggerInteraction.Ignore))
                 return new Vector3(position.x, hit.point.y + restOffset, position.z);
-            return position;
+
+            // No surface found: fall back to the floor height the caller knows about rather than
+            // leaving it at whatever Y was passed in.
+            return new Vector3(position.x, fallbackY + restOffset, position.z);
         }
 
         public static GameObject CreateToolPickup(string itemId, string displayName, Vector3 position,
             Color color, string meshNamePrefix = null, string texFile = null,
-            string standaloneModel = null, string standaloneTextures = null)
+            string standaloneModel = null, string standaloneTextures = null,
+            float targetSize = 0f)
         {
             var tool = new GameObject($"Pickup_{itemId}");
             tool.transform.position = position;
@@ -566,6 +582,11 @@ namespace LastWard.EditorTools
             var settle = tool.GetComponentInChildren<Renderer>();
             if (settle != null)
             {
+                // Downloaded props arrive at whatever scale their author used — the flashlight cell
+                // came in the length of a forearm. Normalised before grounding so the settle below
+                // measures the final size.
+                if (targetSize > 0f) ArtKit.FitLongest(tool, targetSize);
+
                 var b = settle.bounds;
                 foreach (var r in tool.GetComponentsInChildren<Renderer>(true)) b.Encapsulate(r.bounds);
                 tool.transform.position += new Vector3(0f, position.y - b.min.y, 0f);

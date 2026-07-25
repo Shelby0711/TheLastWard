@@ -39,12 +39,12 @@ namespace LastWard.Entity
         [Tooltip("Meter per second simply for having the torch ON anywhere on its floor. It does not " +
             "need to see you - light on its floor is the thing it is drawn to, and this is what makes " +
             "the torch a resource you spend rather than something you leave running.")]
-        [SerializeField] private float torchOnFill = 0.09f;
+        [SerializeField] private float torchOnFill = 0.16f;
         [Tooltip("Additional meter per second with the beam held ON it. The fastest death here.")]
-        [SerializeField] private float litFill = 0.30f;
+        [SerializeField] private float litFill = 0.55f;
         [SerializeField, Range(5f, 90f)] private float beamHalfAngle = 26f;
         [Tooltip("Meter per second while merely looked at. Being seen still costs, just far less.")]
-        [SerializeField] private float gazeFill = 0.05f;
+        [SerializeField] private float gazeFill = 0.10f;
         [Tooltip("Noise multiplier. Lower than the Receptionist's — it is watching, not listening — " +
             "but no longer negligible: moving carelessly still gives you away, just more slowly than " +
             "a torch does.")]
@@ -52,14 +52,14 @@ namespace LastWard.Entity
         [Tooltip("A step or two is free; past this many seconds of continuous movement you are heard.")]
         [SerializeField] private float sustainedMoveGrace = 2f;
         [Tooltip("Meter per second while walking continuously past that grace.")]
-        [SerializeField] private float walkFill = 0.07f;
+        [SerializeField] private float walkFill = 0.12f;
         [Tooltip("Meter per second while running. Crossing its floor at a sprint is a decision.")]
-        [SerializeField] private float runFill = 0.18f;
+        [SerializeField] private float runFill = 0.30f;
         [Tooltip("Speed above which you count as running rather than walking, in m/s.")]
         [SerializeField] private float runSpeed = 3.4f;
         [Tooltip("Meter bled off per second while you are still, silent and unlit. Being careful has " +
             "to actively buy safety back, or there is no way to recover from a bad moment.")]
-        [SerializeField] private float calmDrain = 0.10f;
+        [SerializeField] private float calmDrain = 0.07f;
         [Tooltip("Extra drain while holding your breath. Stillness plus silence is the strongest " +
             "thing you can do against it.")]
         [SerializeField] private float breathHoldDrain = 0.22f;
@@ -88,9 +88,9 @@ namespace LastWard.Entity
         [SerializeField] private float manifestDistance = 1.1f;
         [SerializeField] private float liftSeconds = 4.5f;
         [Tooltip("Stare it down this long on a full meter and it takes you regardless.")]
-        [SerializeField] private float patience = 2.5f;
+        [SerializeField] private float patience = 1.2f;
         [Tooltip("Full meter and already this close? No staging — it is in reach, it simply takes you.")]
-        [SerializeField] private float reachDistance = 3.5f;
+        [SerializeField] private float reachDistance = 4.5f;
         [SerializeField] private float stunSeconds = 5f;
 
         private readonly NetworkVariable<ManagerState> netState =
@@ -103,7 +103,13 @@ namespace LastWard.Entity
         private static readonly int TCrawlBack = Animator.StringToHash("CrawlBack");
         private static readonly int TStrafeL = Animator.StringToHash("StrafeL");
         private static readonly int TStrafeR = Animator.StringToHash("StrafeR");
-        private static readonly int TLift = Animator.StringToHash("Lift");
+        // Three of them, rolled per kill, so repeated deaths never play out identically.
+        private static readonly int[] TKills =
+        {
+            Animator.StringToHash("Kill1"),
+            Animator.StringToHash("Kill2"),
+            Animator.StringToHash("Kill3"),
+        };
         private static readonly int TImpact = Animator.StringToHash("Impact");
 
         private readonly List<Transform> players = new List<Transform>();
@@ -150,7 +156,7 @@ namespace LastWard.Entity
             {
                 GameEvents.OnNoiseEmitted += OnNoise;
                 roamTarget = PickRoamPoint();
-                nextPerch = Time.time + Random.Range(14f, 26f);
+                nextPerch = Time.time + Random.Range(8f, 16f);
             }
         }
 
@@ -429,7 +435,9 @@ namespace LastWard.Entity
             transform.position = spot;
             if (netTransform != null) netTransform.Teleport(spot, transform.rotation, transform.localScale);
             hidden.Value = false;
-            nextPerch = Time.time + Random.Range(14f, 26f);
+            // Deliberately NOT rescheduling the perch here. Slipping happens every time a player
+            // looks at it, and each slip used to push the ceiling perch another 14-26s away — so on
+            // a floor where you are constantly looking around, it never climbed at all.
             busy = false;
         }
 
@@ -464,7 +472,7 @@ namespace LastWard.Entity
                 yield return null;
             }
 
-            nextPerch = Time.time + Random.Range(18f, 34f);
+            nextPerch = Time.time + Random.Range(12f, 22f);
             busy = false;
         }
 
@@ -489,7 +497,7 @@ namespace LastWard.Entity
             pns.ServerSetHeld(true);
             var netObj = victim.GetComponent<NetworkObject>();
             CatchClientRpc(netObj != null ? netObj.OwnerClientId : 0UL);
-            Play(TLift);
+            Play(TKills[Random.Range(0, TKills.Length)], 0f);
 
             yield return new WaitForSeconds(liftSeconds);
 

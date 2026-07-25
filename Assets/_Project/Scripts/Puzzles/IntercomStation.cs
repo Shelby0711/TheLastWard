@@ -72,9 +72,38 @@ namespace LastWard.Puzzles
         }
 
         public bool CanInteract(ulong playerId) => puzzle != null && !puzzle.IsSolved && HasKey();
-        public void Interact(ulong playerId) => puzzle.RequestActivateServerRpc(stationIndex);
 
-        private void OnCorrectMaskChanged(int mask) => ApplyCorrectMask(mask);
+        // Set when THIS client works the lock, so only the player who actually turned the key loses
+        // it — the correct-mask event fires on every peer.
+        private bool awaitingConfirm;
+        public void Interact(ulong playerId)
+        {
+            awaitingConfirm = true;
+            puzzle.RequestActivateServerRpc(stationIndex);
+        }
+
+        private void OnCorrectMaskChanged(int mask)
+        {
+            // The key turns and STAYS in the lock. Without this the keys were checked but never
+            // consumed, so a spent key sat in the bag for the rest of the run and counted against the
+            // two-key limit — you could open all three locks and still be unable to pick anything up.
+            //
+            // Consumed only on a CORRECT press, and only for the client that made it: a wrong press
+            // resets the sequence (mask 0) and must cost you the noise, not the key, or the puzzle
+            // could be made unwinnable by guessing.
+            if (awaitingConfirm && (mask & (1 << stationIndex)) != 0)
+            {
+                awaitingConfirm = false;
+                if (!string.IsNullOrEmpty(requiredItemId))
+                    LastWard.Player.PlayerInventory.Local?.RemoveItem(requiredItemId);
+            }
+            else if (mask == 0)
+            {
+                awaitingConfirm = false;
+            }
+
+            ApplyCorrectMask(mask);
+        }
 
         private void ApplyCorrectMask(int mask)
         {

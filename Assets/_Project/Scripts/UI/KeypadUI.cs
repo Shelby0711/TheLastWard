@@ -33,8 +33,19 @@ namespace LastWard.UI
             Unsubscribe();
         }
 
+        // Generic entry point: any puzzle can hand the pad a submit handler. Kept alongside the
+        // typed overload so the existing Ward keypad is untouched.
+        private System.Action<string> submitHandler;
+
+        public void Open(System.Action<string> onSubmit)
+        {
+            submitHandler = onSubmit;
+            Open((RecordCodePuzzle)null);
+        }
+
         public void Open(RecordCodePuzzle puzzle)
         {
+            if (puzzle != null) submitHandler = null;
             target = puzzle;
             closeScheduled = false;
             codeInput.text = string.Empty;
@@ -66,6 +77,12 @@ namespace LastWard.UI
 
         private void OnSubmit()
         {
+            if (submitHandler != null)
+            {
+                submitHandler(codeInput.text);
+                Close();
+                return;
+            }
             if (target == null) return;
             target.RequestSubmitCodeServerRpc(codeInput.text);
             codeInput.text = string.Empty;

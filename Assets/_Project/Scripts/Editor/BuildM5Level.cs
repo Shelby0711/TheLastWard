@@ -69,6 +69,10 @@ namespace LastWard.EditorTools
             CreateDiscoveryUI();
             // Self-building: it makes its own canvas, so it needs no wiring here.
             new GameObject("BreathMeterUI").AddComponent<LastWard.UI.BreathMeterUI>();
+            new GameObject("BatteryMeterUI").AddComponent<LastWard.UI.BatteryMeterUI>();
+            // The F3 panel's Inventory tab. Self-building, and found by ControlsPanelUI via its
+            // static Instance rather than a serialized reference.
+            new GameObject("InventoryPanelUI").AddComponent<LastWard.UI.InventoryPanelUI>();
             CreateLoreNotes();
             // Corridor presence: steps, slams, crying, lights going red — none of it the Entity.
             new GameObject("HauntingDirector").AddComponent<HauntingDirector>();
@@ -644,7 +648,9 @@ namespace LastWard.EditorTools
                     ("CrawlBack", AN + "Crawling_Backwards.fbx",     true),
                     ("StrafeL",   AN + "Left_Strafe_Walking.fbx",    true),
                     ("StrafeR",   AN + "Right_Strafe_Walking.fbx",   true),
-                    ("Lift",      AN + "Animation of lifting.fbx",   false),
+                    ("Kill1",     AN + "killing01.fbx",              false),
+                    ("Kill2",     AN + "killing02.fbx",              false),
+                    ("Kill3",     AN + "killing03.fbx",              false),
                     ("Impact",    AN + "Impact animation.fbx",       false),
                 }, "AC_Manager");
             // The permanent stutter is the Manager's alone. ManagerController flips it on at spawn.
@@ -714,17 +720,39 @@ namespace LastWard.EditorTools
                     EditorBuildKit.SetString(st, "requiredItemId", keyIds[idx]);
             }
 
+            // TWO batteries in the entire building, both tucked out of sight. One per room made the
+            // torch effectively infinite, which defeats the point of metering it — and nothing about
+            // an abandoned hospital explains fresh cells lying in every room. These are scavenged
+            // finds: behind the racks in Storage, and under the desk in Records.
+            EditorBuildKit.CreateToolPickup("battery", "flashlight battery",
+                EditorBuildKit.DropToSurface(new Vector3(12.1f, 0.3f, 26.2f), fallbackY: 0f),
+                new Color(0.4f, 0.8f, 0.4f),
+                standaloneModel: "Props/FlashlightBattery/scene.gltf",
+                standaloneTextures: "Props/FlashlightBattery/textures",
+                targetSize: 0.14f);
+            EditorBuildKit.CreateToolPickup("battery", "flashlight battery",
+                EditorBuildKit.DropToSurface(new Vector3(-11.8f, 0.3f, 38.9f), fallbackY: 0f),
+                new Color(0.4f, 0.8f, 0.4f),
+                standaloneModel: "Props/FlashlightBattery/scene.gltf",
+                standaloneTextures: "Props/FlashlightBattery/textures",
+                targetSize: 0.14f);
+
+            // Somewhere to get out of sight in the corridor itself. Every hiding place was in the
+            // Lobby and the Ward, so the stretch where it is most dangerous had none at all.
+            EditorBuildKit.CreateUnderBedHidingSpot("Hide_Bed_Washroom",
+                new Vector3(7.4f, 0f, 32.4f), "Hide under the cot", 90f);
+
             // The keys themselves, one per corridor room — Storage, Washroom, Records.
             // Dropped onto whatever is beneath them rather than left at a guessed height — they
             // were hanging in mid-air at waist level.
             EditorBuildKit.CreateToolPickup(keyIds[0], "small brass key",
-                EditorBuildKit.DropToSurface(new Vector3(9.5f, 0.9f, 22.6f)),
+                EditorBuildKit.DropToSurface(new Vector3(9.5f, 0.4f, 22.6f), fallbackY: 0f),
                 new Color(0.85f, 0.72f, 0.25f), meshNamePrefix: "Key", texFile: "KeyBake-V2.0_1024.png");
             EditorBuildKit.CreateToolPickup(keyIds[1], "bent steel key",
-                EditorBuildKit.DropToSurface(new Vector3(10.6f, 0.9f, 35.2f)),
+                EditorBuildKit.DropToSurface(new Vector3(10.6f, 0.4f, 35.2f), fallbackY: 0f),
                 new Color(0.75f, 0.75f, 0.78f), meshNamePrefix: "Key", texFile: "KeyBake-V2.0_1024.png");
             EditorBuildKit.CreateToolPickup(keyIds[2], "long iron key",
-                EditorBuildKit.DropToSurface(new Vector3(-10.4f, 0.9f, 42.2f)),
+                EditorBuildKit.DropToSurface(new Vector3(-10.4f, 0.4f, 42.2f), fallbackY: 0f),
                 new Color(0.55f, 0.45f, 0.35f), meshNamePrefix: "Key", texFile: "KeyBake-V2.0_1024.png");
 
             // The order, told as habit rather than instruction. No note states it outright; between
@@ -837,6 +865,7 @@ namespace LastWard.EditorTools
 
             DressFirstFloor();
             CreateManagerLore();
+            CreateWardGate();
             CreateSecondFloorStairs();
         }
 
@@ -963,6 +992,132 @@ namespace LastWard.EditorTools
             AddDimLight(new Vector3(0f, y0 + 2.6f, topZ + 1f), 0.12f);
         }
 
+
+        /// <summary>
+        /// The security gate across the middle of the first-floor hallway, and the three-stage puzzle
+        /// that opens it: power at the generator by the stairs, a code from the paperwork, then a
+        /// crowbar to haul the rusted thing aside. Placed at z=71, between the Records and Theatre
+        /// doorways, so it seals the hall completely and both halves of the floor stay reachable
+        /// while you work on it.
+        /// </summary>
+        private static void CreateWardGate()
+        {
+            const float gateZ = 71f;
+            var root = new GameObject("FF_WardGate");
+            var puzzle = root.AddComponent<Unity.Netcode.NetworkObject>().gameObject
+                .AddComponent<LastWard.Puzzles.WardGatePuzzle>();
+
+            // --- the gate: a sliding barred leaf spanning the full 3m corridor ---
+            var leaf = new GameObject("GateLeaf").transform;
+            leaf.SetParent(root.transform, false);
+            leaf.localPosition = new Vector3(0f, 0f, gateZ);
+
+            var frameMat = EditorBuildKit.MakeMaterial(new Color(0.20f, 0.17f, 0.15f));
+            // Verticals every 22cm: dense enough to read as a jail gate and to see through.
+            for (float x = -1.45f; x <= 1.45f; x += 0.22f)
+            {
+                var bar = EditorBuildKit.CreateBox($"Bar_{x:0.00}",
+                    new Vector3(x, FFy + 1.5f, gateZ), new Vector3(0.05f, 3f, 0.05f));
+                EditorBuildKit.SetMaterial(bar, frameMat);
+                bar.transform.SetParent(leaf, true);
+            }
+            foreach (float y in new[] { 0.25f, 1.5f, 2.75f })
+            {
+                var rail = EditorBuildKit.CreateBox($"Rail_{y:0.00}",
+                    new Vector3(0f, FFy + y, gateZ), new Vector3(3f, 0.09f, 0.09f));
+                EditorBuildKit.SetMaterial(rail, frameMat);
+                rail.transform.SetParent(leaf, true);
+            }
+
+            // --- keypad on the wall beside it, screen dark until the floor is live ---
+            var pad = EditorBuildKit.CreateKeypad("FF_GateKeypad", new Vector3(1.35f, FFy + 1.35f, gateZ - 1.1f), 180f);
+            var padKey = pad.AddComponent<LastWard.Puzzles.GateKeypadInteractable>();
+            EditorBuildKit.SetRef(padKey, "puzzle", puzzle);
+            var screen = EditorBuildKit.CreateBox("FF_GateKeypad_Screen",
+                new Vector3(1.24f, FFy + 1.5f, gateZ - 1.1f), new Vector3(0.02f, 0.13f, 0.2f));
+            EditorBuildKit.SetMaterial(screen, EditorBuildKit.MakeEmissive(
+                new Color(0.03f, 0.03f, 0.03f), new Color(0.05f, 0.05f, 0.05f)));
+
+            // --- the gate itself is what the crowbar is used on ---
+            var barTrigger = EditorBuildKit.CreateBox("FF_GateHandle",
+                new Vector3(-0.6f, FFy + 1.2f, gateZ), new Vector3(0.5f, 0.5f, 0.3f));
+            barTrigger.GetComponent<Renderer>().enabled = false;   // an interaction volume, not a prop
+            var handle = barTrigger.AddComponent<LastWard.Puzzles.GateBarInteractable>();
+            EditorBuildKit.SetRef(handle, "puzzle", puzzle);
+
+            // --- the generator, back by the stairs ---
+            var genBody = EditorBuildKit.CreateBox("FF_Generator",
+                new Vector3(1.15f, FFy + 0.45f, 61.5f), new Vector3(0.7f, 0.9f, 0.5f));
+            Tile(genBody, FFWallB, 1f);
+            var gen = genBody.AddComponent<LastWard.Puzzles.GeneratorInteractable>();
+            EditorBuildKit.SetRef(gen, "puzzle", puzzle);
+
+            // Lever: down while dead, thrown up once the cell is in.
+            var lever = EditorBuildKit.CreateBox("FF_GeneratorLever",
+                new Vector3(1.15f, FFy + 0.95f, 61.25f), new Vector3(0.06f, 0.34f, 0.06f));
+            EditorBuildKit.SetMaterial(lever, EditorBuildKit.MakeMaterial(new Color(0.55f, 0.45f, 0.15f)));
+            UnityObject.DestroyImmediate(lever.GetComponent<Collider>());
+
+            // One small dot: red dead, green live.
+            var lamp = EditorBuildKit.CreateBox("FF_GeneratorLamp",
+                new Vector3(0.95f, FFy + 0.78f, 61.24f), new Vector3(0.07f, 0.07f, 0.03f));
+            EditorBuildKit.SetMaterial(lamp, EditorBuildKit.MakeEmissive(
+                new Color(0.3f, 0.05f, 0.05f), new Color(0.9f, 0.1f, 0.1f)));
+            UnityObject.DestroyImmediate(lamp.GetComponent<Collider>());
+
+            EditorBuildKit.SetRef(puzzle, "gateLeaf", leaf);
+            EditorBuildKit.SetRef(puzzle, "lever", lever.transform);
+            EditorBuildKit.SetRef(puzzle, "generatorLamp", lamp.GetComponent<Renderer>());
+            EditorBuildKit.SetRef(puzzle, "keypadScreen", screen.GetComponent<Renderer>());
+            // 3-0-4-7: the bed numbers in the order the register lists them. NOT 0347 — that is the
+            // numerical sort the maintenance card explicitly warns against, and it is what the code
+            // was mistakenly set to, which would have made the notes lie to the player.
+            EditorBuildKit.SetString(puzzle, "code", "3047");
+
+            // --- the heavy cell, hidden in the Theatre ---
+            EditorBuildKit.CreateToolPickup("cell", "heavy cell",
+                EditorBuildKit.DropToSurface(new Vector3(7.2f, FFy + 0.3f, 61.4f), fallbackY: FFy),
+                new Color(0.35f, 0.35f, 0.4f),
+                standaloneModel: "Props/Battery/scene.gltf",
+                standaloneTextures: "Props/Battery/textures");
+
+            // The building's SECOND and last crowbar, tucked in the Staff room at the far north end
+            // — past the gate it cannot help you open, so it is insurance for the floors above rather
+            // than a way to skip this puzzle. Two bars, two uses each, for the whole building.
+            EditorBuildKit.CreateToolPickup("crowbar", "crowbar",
+                EditorBuildKit.DropToSurface(new Vector3(6.9f, FFy + 0.3f, 84.2f), fallbackY: FFy),
+                new Color(0.75f, 0.3f, 0.2f),
+                standaloneModel: "Props/Crowbar/scene.gltf", standaloneTextures: "Props/Crowbar/textures");
+
+            CreateGateCodeNotes();
+        }
+
+        /// <summary>
+        /// The code, split across three documents so it cannot be guessed or brute-forced from one.
+        /// Nothing states it outright: the Ward Two register gives the intake numbers, the Manager's
+        /// memo says which of them the gate was set to, and the maintenance card gives the order the
+        /// digits are read in. Same shape as the corridor's nurse-order puzzle, one step harder.
+        /// </summary>
+        private static void CreateGateCodeNotes()
+        {
+            EditorBuildKit.CreateNoteProp("FF_Note_Register", new Vector3(-6.9f, FFy, 66.6f),
+                "Assets/_Project/Data/ff_register.asset", "ff_register", "Ward Two — Intake Register",
+                "Beds are numbered by the year the wing opened, not by the room. Bed three took the " +
+                "March intake. Bed zero was never used - it is where they put the ones who were " +
+                "already gone. Four and seven were the last pair admitted before the fire.", 4f);
+
+            EditorBuildKit.CreateNoteProp("FF_Note_GateMemo", new Vector3(6.7f, FFy, 63.8f),
+                "Assets/_Project/Data/ff_gatememo.asset", "ff_gatememo", "Memo — Gate Access",
+                "The gate is set to the beds, not to a date. Whoever keeps writing the year on the " +
+                "frame: stop. The Manager set it to the four bed numbers in the register and he will " +
+                "not be changing it for anyone's convenience.", 4f);
+
+            EditorBuildKit.CreateNoteProp("FF_Note_Maintenance", new Vector3(-6.9f, FFy, 63.2f),
+                "Assets/_Project/Data/ff_maintenance.asset", "ff_maintenance", "Maintenance Card",
+                "Pad reads left to right in the order the register lists them, not lowest first. " +
+                "Anyone entering them in numerical order will lock themselves out and I am not " +
+                "coming up here again to reset it.", 4f);
+        }
 
         /// <summary>A corridor wall broken by doorways at the given Z centres.</summary>
         private static void BuildFFCorridorWall(string name, float x, float zS, float zN,
@@ -1327,12 +1482,6 @@ namespace LastWard.EditorTools
                     ArtKit.AutoTexture(mirror, "Props/Mirror/textures", alphaClip: false, pointFilter: false);
                 }
             }
-
-            // Batteries for the torch, one per room, on the floor against a wall.
-            EditorBuildKit.CreateToolPickup("battery", "battery",
-                centre + new Vector3(size.x / 2f - 0.5f, 0f, -size.y / 2f + 0.6f),
-                new Color(0.4f, 0.8f, 0.4f),
-                standaloneModel: "Props/Battery/scene.gltf", standaloneTextures: "Props/Battery/textures");
 
             UnityObject.DestroyImmediate(scratch.gameObject);
         }
@@ -1765,6 +1914,8 @@ namespace LastWard.EditorTools
             ArtKit.CapTextureSize("Environment/Grass", 256);
             ArtKit.CapTextureSize("Environment/TreePack", 256);
             ArtKit.CapTextureSize("Characters/Entity/textures", 512);
+            // 1.5MB albedo for an object the size of a thumb — capped hard.
+            ArtKit.CapTextureSize("Props/FlashlightBattery/textures", 128);
 
             AddMoonlight(root);
             ScatterTreeline(root, scratch);

@@ -19,6 +19,12 @@ namespace LastWard.Player
 
         private void Toggle()
         {
+            // A dead cell simply does not light. Blocking the toggle (rather than letting it turn on
+            // and immediately die) is what makes the last bar a decision instead of a formality.
+            var battery = FlashlightBattery.Local;
+            bool turningOn = state != null && !state.FlashlightOn;
+            if (turningOn && battery != null && !battery.CanTurnOn) return;
+
             if (state != null) state.ToggleFlashlight();
             else if (fallbackLight != null) fallbackLight.enabled = !fallbackLight.enabled;
         }

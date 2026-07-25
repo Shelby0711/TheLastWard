@@ -145,6 +145,7 @@ namespace LastWard.Core
             {
                 if (PlayerInventory.Local == null || !PlayerInventory.Local.HasItem(requiredItemId)) return;
                 if (consumesItem) PlayerInventory.Local.RemoveItem(requiredItemId);
+                else PlayerInventory.Local.RegisterUse(requiredItemId);   // tools wear out instead
             }
 
             GameEvents.RaiseNoiseEmitted(transform.position, 9f, NoiseSource.PuzzleInteraction);

@@ -37,21 +37,55 @@ namespace LastWard.Net
             foreach (var collider in GetComponentsInChildren<Collider>(true)) collider.enabled = !isTaken;
         }
 
+        /// <summary>
+        /// Every pickup in the scene, so a dropped item can find its own object again and put itself
+        /// back. Dropping spawns nothing new — it un-takes the original, which keeps the item count
+        /// in the level fixed and avoids needing a networked prefab for every carryable.
+        /// </summary>
+        private static readonly System.Collections.Generic.List<NetworkedPickup> All =
+            new System.Collections.Generic.List<NetworkedPickup>();
+
+        private void OnEnable() { if (!All.Contains(this)) All.Add(this); }
+        private void OnDisable() => All.Remove(this);
+
+        /// <summary>Server-only. Puts a carried item back on the floor at <paramref name="at"/>.</summary>
+        public static bool ServerDropItem(string itemId, Vector3 at)
+        {
+            foreach (var p in All)
+            {
+                if (p == null || !p.taken.Value || p.itemId != itemId) continue;
+                p.transform.position = at;
+                p.taken.Value = false;
+                return true;
+            }
+            return false;
+        }
+
         public string GetPrompt()
         {
             if (taken.Value) return null;
             // Without this the prompt still reads "Pick up X" while CanInteract quietly refuses,
             // so the key looks broken rather than the hands looking full.
-            if (PlayerInventory.Local != null && PlayerInventory.Local.IsFull)
-                return $"Hands full — can't take {displayName}";
+            var reason = PlayerInventory.Local?.RejectReason(itemId);
+            if (reason != null) return $"{displayName} — {reason}";
             return $"Pick up {displayName}";
         }
 
         public bool CanInteract(ulong playerId) =>
-            !taken.Value && PlayerInventory.Local != null && !PlayerInventory.Local.IsFull;
+            !taken.Value && PlayerInventory.Local != null && PlayerInventory.Local.CanAccept(itemId);
 
         public void Interact(ulong playerId)
         {
+            // A battery is used the instant it is picked up rather than carried. Storing it would
+            // eat one of only four slots for something with exactly one use.
+            if (itemId == "battery")
+            {
+                var cell = LastWard.Player.FlashlightBattery.Local;
+                if (cell == null || !cell.AddBattery()) return;
+                RequestTakeServerRpc();
+                return;
+            }
+
             if (PlayerInventory.Local != null && PlayerInventory.Local.TryAddItem(itemId))
                 RequestTakeServerRpc();
         }
