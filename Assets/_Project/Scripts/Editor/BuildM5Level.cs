@@ -45,6 +45,7 @@ namespace LastWard.EditorTools
             CreateWardZone();
             CreateCorridorZone();
             CreateExitRouteZone();
+            CreateSanctuary();
             CreateFloorStairs();
             CreateBlindLore();
             CreateFirstFloor();
@@ -66,6 +67,8 @@ namespace LastWard.EditorTools
             EditorBuildKit.CreateConnectionUI();
             CreateObjectiveUI();
             CreateDiscoveryUI();
+            // Self-building: it makes its own canvas, so it needs no wiring here.
+            new GameObject("BreathMeterUI").AddComponent<LastWard.UI.BreathMeterUI>();
             CreateLoreNotes();
             // Corridor presence: steps, slams, crying, lights going red — none of it the Entity.
             new GameObject("HauntingDirector").AddComponent<HauntingDirector>();
@@ -712,11 +715,16 @@ namespace LastWard.EditorTools
             }
 
             // The keys themselves, one per corridor room — Storage, Washroom, Records.
-            EditorBuildKit.CreateToolPickup(keyIds[0], "small brass key", new Vector3(9.5f, 0.9f, 22.6f),
+            // Dropped onto whatever is beneath them rather than left at a guessed height — they
+            // were hanging in mid-air at waist level.
+            EditorBuildKit.CreateToolPickup(keyIds[0], "small brass key",
+                EditorBuildKit.DropToSurface(new Vector3(9.5f, 0.9f, 22.6f)),
                 new Color(0.85f, 0.72f, 0.25f), meshNamePrefix: "Key", texFile: "KeyBake-V2.0_1024.png");
-            EditorBuildKit.CreateToolPickup(keyIds[1], "bent steel key", new Vector3(10.6f, 0.9f, 35.2f),
+            EditorBuildKit.CreateToolPickup(keyIds[1], "bent steel key",
+                EditorBuildKit.DropToSurface(new Vector3(10.6f, 0.9f, 35.2f)),
                 new Color(0.75f, 0.75f, 0.78f), meshNamePrefix: "Key", texFile: "KeyBake-V2.0_1024.png");
-            EditorBuildKit.CreateToolPickup(keyIds[2], "long iron key", new Vector3(-10.4f, 0.9f, 42.2f),
+            EditorBuildKit.CreateToolPickup(keyIds[2], "long iron key",
+                EditorBuildKit.DropToSurface(new Vector3(-10.4f, 0.9f, 42.2f)),
                 new Color(0.55f, 0.45f, 0.35f), meshNamePrefix: "Key", texFile: "KeyBake-V2.0_1024.png");
 
             // The order, told as habit rather than instruction. No note states it outright; between
@@ -827,7 +835,6 @@ namespace LastWard.EditorTools
             BuildFFRoom("FF_Theatre",  new Vector3(-5.5f, 0f, 75f), new Vector2(6f, 7f), FFWallB, FFFloorA, new Color(0.95f, 0.95f, 0.90f), 1.5f);
             BuildFFRoom("FF_Staff",    new Vector3(5.5f, 0f, 82f), new Vector2(6f, 6f), FFWallB, FFFloorB, new Color(0.85f, 0.70f, 0.60f), 1.5f);
 
-            CreateDarkCorners();
             DressFirstFloor();
             CreateManagerLore();
             CreateSecondFloorStairs();
@@ -956,30 +963,6 @@ namespace LastWard.EditorTools
             AddDimLight(new Vector3(0f, y0 + 2.6f, topZ + 1f), 0.12f);
         }
 
-        /// <summary>
-        /// Unlit black boxes tucked into the ceiling corners of the first-floor corridor. They are
-        /// pure matte black and take no light at all, so a torch sweeping the ceiling finds nothing
-        /// there — which is precisely what makes them somewhere the Manager can sit and watch. Two
-        /// glowing eyes in one of these reads as a thing in the dark rather than a model on a ceiling.
-        /// </summary>
-        private static void CreateDarkCorners()
-        {
-            var black = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-            black.SetColor("_BaseColor", new Color(0.004f, 0.004f, 0.006f));
-
-            var root = new GameObject("FF_DarkCorners").transform;
-            for (float z = 62f; z <= 86f; z += 4f)
-            {
-                foreach (float sx in new[] { -1f, 1f })
-                {
-                    var box = EditorBuildKit.CreateBox($"DarkCorner_{(sx < 0 ? "W" : "E")}_{z:0}",
-                        new Vector3(sx * 1.15f, FFy + 2.55f, z), new Vector3(0.7f, 0.9f, 3.6f));
-                    UnityObject.DestroyImmediate(box.GetComponent<Collider>());   // shadow, not geometry
-                    EditorBuildKit.SetMaterial(box, black);
-                    box.transform.SetParent(root, true);
-                }
-            }
-        }
 
         /// <summary>A corridor wall broken by doorways at the given Z centres.</summary>
         private static void BuildFFCorridorWall(string name, float x, float zS, float zN,
@@ -1039,6 +1022,22 @@ namespace LastWard.EditorTools
         /// One flight climbs to the second floor, one drops to the basement. Only the stairs exist
         /// so far; both destinations (and the corridor Entity) come next session.
         /// </summary>
+        /// <summary>
+        /// The reprieve past the exit door: leave the corridor, shut Door_FinalExit behind you, and
+        /// the fear meter bleeds away. See <see cref="SanctuaryZone"/> for why the door must actually
+        /// be closed for it to count.
+        /// </summary>
+        private static void CreateSanctuary()
+        {
+            var go = new GameObject("SanctuaryZone");
+            var zone = go.AddComponent<SanctuaryZone>();
+            var door = GameObject.Find("Door_FinalExit");
+            if (door != null && door.TryGetComponent<LastWard.Net.NetworkedDoor>(out var nd))
+                EditorBuildKit.SetRef(zone, "gateDoor", nd);
+            else
+                Debug.LogWarning("[Build] Door_FinalExit not found — SanctuaryZone has no gate door.");
+        }
+
         /// <summary>
         /// A single straight flight climbing the Exit Route (y=0) up to the first-floor corridor
         /// (y=FFy=3.2) — 16 steps of 0.2m over 4.8m of run, topping out exactly at z=60, which is the

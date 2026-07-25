@@ -36,13 +36,44 @@ namespace LastWard.Entity
         [SerializeField] private float floorY = 3.2f;
 
         [Header("Light — its sense")]
-        [Tooltip("Meter per second with a torch beam held on it. The fastest death on this floor.")]
+        [Tooltip("Meter per second simply for having the torch ON anywhere on its floor. It does not " +
+            "need to see you - light on its floor is the thing it is drawn to, and this is what makes " +
+            "the torch a resource you spend rather than something you leave running.")]
+        [SerializeField] private float torchOnFill = 0.09f;
+        [Tooltip("Additional meter per second with the beam held ON it. The fastest death here.")]
         [SerializeField] private float litFill = 0.30f;
         [SerializeField, Range(5f, 90f)] private float beamHalfAngle = 26f;
         [Tooltip("Meter per second while merely looked at. Being seen still costs, just far less.")]
         [SerializeField] private float gazeFill = 0.05f;
-        [Tooltip("Noise multiplier. Low on purpose: it is watching, not listening.")]
-        [SerializeField] private float noiseSensitivity = 0.25f;
+        [Tooltip("Noise multiplier. Lower than the Receptionist's — it is watching, not listening — " +
+            "but no longer negligible: moving carelessly still gives you away, just more slowly than " +
+            "a torch does.")]
+        [SerializeField] private float noiseSensitivity = 0.45f;
+        [Tooltip("A step or two is free; past this many seconds of continuous movement you are heard.")]
+        [SerializeField] private float sustainedMoveGrace = 2f;
+        [Tooltip("Meter per second while walking continuously past that grace.")]
+        [SerializeField] private float walkFill = 0.07f;
+        [Tooltip("Meter per second while running. Crossing its floor at a sprint is a decision.")]
+        [SerializeField] private float runFill = 0.18f;
+        [Tooltip("Speed above which you count as running rather than walking, in m/s.")]
+        [SerializeField] private float runSpeed = 3.4f;
+        [Tooltip("Meter bled off per second while you are still, silent and unlit. Being careful has " +
+            "to actively buy safety back, or there is no way to recover from a bad moment.")]
+        [SerializeField] private float calmDrain = 0.10f;
+        [Tooltip("Extra drain while holding your breath. Stillness plus silence is the strongest " +
+            "thing you can do against it.")]
+        [SerializeField] private float breathHoldDrain = 0.22f;
+        [Tooltip("Drain while properly hidden in a spot with the torch off.")]
+        [SerializeField] private float hiddenDrain = 0.20f;
+
+        [Header("Endgame")]
+        [Tooltip("Past this Z it is guarding the way up and stops being patient — everything it " +
+            "senses counts for more, the same way the Receptionist hardens at the corridor exit.")]
+        [SerializeField] private float endgameFromZ = 78f;
+        [SerializeField] private float endgameMultiplier = 2.2f;
+        [Tooltip("Logs the meter while your torch is on it, so a stalled meter can be told apart from " +
+            "stalled senses at a glance.")]
+        [SerializeField] private bool debugMeter;
 
         [Header("Movement")]
         [SerializeField] private float roamSpeed = 1.2f;
@@ -79,11 +110,19 @@ namespace LastWard.Entity
         private Renderer[] renderers;
         private Animator animator;
         private Unity.Netcode.Components.NetworkTransform netTransform;
-        private AudioSource whisper, movement;
+        private AudioSource whisper, movement, scramble;
 
         private bool busy;
+        // Separate from `busy` on purpose. Sensing runs every frame now (a stalker that only watches
+        // while idle is not a stalker), which means the kill trigger can be reached while a kill is
+        // ALREADY running — and StopAllCoroutines would then abort the first Manifest partway, leaving
+        // the victim held, alive and frozen forever. This flag makes the kill strictly non-reentrant
+        // while still letting a full meter interrupt perching or slipping.
+        private bool killing;
         private float stunnedUntil, fullSince = -1f;
         private Vector3 roamTarget;
+        private readonly Dictionary<Transform, float> moveTime = new Dictionary<Transform, float>();
+        private readonly Dictionary<Transform, Vector3> lastPos = new Dictionary<Transform, Vector3>();
         private float nextRoamPick, nextPerch, lastAnim;
 
         public ManagerState State => netState.Value;
@@ -98,8 +137,12 @@ namespace LastWard.Entity
             var driver = GetComponentInChildren<EntityAnimationDriver>();
             if (driver != null) driver.SetForceStutter(true);
 
+            // Three spatial layers at different reaches, so distance alone tells you what it is
+            // doing: the whisper carries furthest and is always there, the movement loop only reaches
+            // you when it is genuinely near, and the scramble is the panic of it repositioning fast.
             whisper = MakeLoop(GameSfx.ManagerWhisper, 0.55f, 26f);
-            movement = MakeLoop(GameSfx.ManagerMovement, 0f, 16f);
+            movement = MakeLoop(GameSfx.ManagerMovement, 0f, 14f);
+            scramble = MakeLoop(GameSfx.ManagerScramble, 0f, 22f);
 
             hidden.OnValueChanged += OnHiddenChanged;
             ApplyHidden(hidden.Value);
@@ -147,6 +190,16 @@ namespace LastWard.Entity
         {
             if (!IsServer) return;
             stunnedUntil = Mathf.Max(stunnedUntil, Time.time + Mathf.Max(seconds, stunSeconds));
+            // A thrown weapon mid-lift releases the victim rather than freezing them in its grip.
+            if (killing)
+            {
+                StopAllCoroutines();
+                foreach (var p in players)
+                    if (p != null && p.TryGetComponent<PlayerNetworkState>(out var vic) && vic.IsHeld)
+                        vic.ServerSetHeld(false);
+                killing = false;
+                busy = false;
+            }
             netState.Value = ManagerState.Stunned;
             Play(TImpact);
         }
@@ -157,20 +210,34 @@ namespace LastWard.Entity
             foreach (var p in players)
             {
                 if (p == null || Vector3.Distance(p.position, position) > 2.5f) continue;
-                if (p.TryGetComponent<PlayerNetworkState>(out var pns) && pns.IsAlive)
-                    pns.ServerSetDiscovery(pns.Discovery + 0.2f * noiseSensitivity);
+                if (!p.TryGetComponent<PlayerNetworkState>(out var pns) || !pns.IsAlive) continue;
+                if (pns.IsHoldingBreath) continue;      // whatever that was, it was not you
+                float mult = p.position.z >= endgameFromZ ? endgameMultiplier : 1f;
+                pns.ServerSetDiscovery(pns.Discovery + 0.2f * noiseSensitivity * mult);
             }
         }
 
         private void Update()
         {
+            // Walking and scrambling are different sounds on purpose. A slow drag somewhere in the
+            // dark and a sudden scurry across the ceiling should not be the same cue, because they
+            // mean different things about how much time you have.
+            var st = netState.Value;
             if (movement != null)
                 movement.volume = Mathf.MoveTowards(movement.volume,
-                    netState.Value == ManagerState.Roam || netState.Value == ManagerState.Slip ? 0.5f : 0f,
-                    Time.deltaTime * 2f);
+                    st == ManagerState.Roam ? 0.5f : 0f, Time.deltaTime * 2f);
+            if (scramble != null)
+                scramble.volume = Mathf.MoveTowards(scramble.volume,
+                    st == ManagerState.Slip || st == ManagerState.Perch ? 0.8f : 0f, Time.deltaTime * 3.5f);
 
-            if (!IsServer || busy || Time.time < stunnedUntil) return;
+            if (!IsServer) return;
             RefreshPlayers();
+
+            // Sensing runs ALWAYS. It used to sit behind the `busy` guard, so while it was perching
+            // or slipping — which is most of the time — nobody's meter moved at all and it could
+            // never reach the threshold that kills. Being busy should stop it ACTING, not stop it
+            // watching; a thing that only sees you while idle is not a stalker.
+            bool acting = !busy && Time.time >= stunnedUntil;
 
             Transform watcher = null;
             float watcherDist = float.MaxValue;
@@ -199,8 +266,63 @@ namespace LastWard.Entity
                     lit = pns.FlashlightOn && angle <= beamHalfAngle;
                 }
 
-                if (lit) pns.ServerSetDiscovery(pns.Discovery + litFill * Time.deltaTime);
-                else if (gazed) pns.ServerSetDiscovery(pns.Discovery + gazeFill * Time.deltaTime);
+                // Nearer the second-floor stairs it is guarding the way up, and everything it
+                // senses counts for more — the Manager's version of the corridor hardening.
+                float aggression = p.position.z >= endgameFromZ ? endgameMultiplier : 1f;
+
+                // The meter tracks WHAT YOU DO, not what it happens to be able to see. Gating all of
+                // this behind line of sight was the mistake: it hides constantly, so the meter tracked
+                // its own state instead of your behaviour and collapsed the moment it slipped away.
+                // Light and noise on its floor are what draw it, whether or not it is looking.
+                float dt = Mathf.Max(0.0001f, Time.deltaTime);
+                Vector3 prev = lastPos.TryGetValue(p, out var lp) ? lp : p.position;
+                float moved = Vector3.Distance(prev, p.position);
+                lastPos[p] = p.position;
+
+                float speed = moved / dt;
+                bool moving = speed > 0.4f;
+                bool running = speed > runSpeed;
+                bool silent = pns.IsHoldingBreath;
+                bool concealed = pns.IsHidden;
+
+                float held = moveTime.TryGetValue(p, out var mt) ? mt : 0f;
+                held = moving ? held + dt : held - dt * 2.5f;
+                held = Mathf.Clamp(held, 0f, sustainedMoveGrace * 3f);
+                moveTime[p] = held;
+
+                float delta = 0f;
+
+                // --- LIGHT: its sense. Carrying a lit torch across its floor costs you even when it
+                // cannot see you; pointing it straight at the thing costs far more.
+                if (pns.FlashlightOn)
+                {
+                    delta += torchOnFill;
+                    if (lit) delta += litFill;
+                }
+                if (gazed && !lit) delta += gazeFill;
+
+                // --- SOUND: weaker than light, but no longer negligible. Running is a real decision.
+                if (!silent && !concealed && moving && held > sustainedMoveGrace)
+                    delta += (running ? runFill : walkFill) * (pns.IsCrouching ? 0.45f : 1f);
+
+                // --- RELIEF: torch off and still. Hiding and holding your breath stack on top, which
+                // is what makes the breath timer worth spending rather than a novelty.
+                if (!pns.FlashlightOn && !moving)
+                    delta -= concealed ? hiddenDrain : calmDrain;
+                if (silent) delta -= breathHoldDrain;
+
+                if (!Mathf.Approximately(delta, 0f))
+                    pns.ServerSetDiscovery(pns.Discovery + delta * aggression * Time.deltaTime);
+
+                // Twice now the first-floor meter has been silently cancelled out by something else
+                // writing it (the Receptionist decaying upstairs players, then the SanctuaryZone
+                // covering the whole floor). Both times it looked identical from the outside: the
+                // Manager stalking perfectly and never killing. This makes that failure visible
+                // instead of invisible - if the meter is not moving while lit, it is being fought.
+                if (debugMeter)
+                    Debug.Log($"[Manager] torch={(pns.FlashlightOn ? 1 : 0)} lit={(lit ? 1 : 0)} " +
+                        $"spd={speed:0.0} hold={(silent ? 1 : 0)} delta={delta * aggression:+0.000;-0.000}/s " +
+                        $"meter={pns.Discovery:0.00}");
 
                 if (pns.Discovery >= 0.999f)
                 {
@@ -208,8 +330,13 @@ namespace LastWard.Entity
                     bool inReach = dist <= reachDistance;
                     // Three ways in. Requiring "unseen" alone was a deadlock: looking is what fills
                     // the meter, so staring at it made the kill impossible.
-                    if (!gazed || inReach || Time.time - fullSince >= patience)
+                    if (!killing && (!gazed || inReach || Time.time - fullSince >= patience))
                     {
+                        // The kill outranks whatever it was doing. Perching and slipping are stopped
+                        // so a full meter is never left waiting on a ceiling routine to finish - but
+                        // never a kill already in progress, hence the `killing` guard above.
+                        StopAllCoroutines();
+                        killing = true;
                         busy = true;
                         StartCoroutine(Manifest(p, pns, inReach || gazed));
                         return;
@@ -220,6 +347,7 @@ namespace LastWard.Entity
             }
 
             if (!anyUpstairs) { fullSince = -1f; return; }
+            if (!acting) return;                 // busy or stunned: it watched, but it does not move
 
             // Caught looking: slip sideways out of the corridor rather than standing there.
             if (watcher != null && watcherDist < slipTriggerRange && netState.Value != ManagerState.Slip)
@@ -376,6 +504,7 @@ namespace LastWard.Entity
             transform.position = away;
             if (netTransform != null) netTransform.Teleport(away, transform.rotation, transform.localScale);
             netState.Value = ManagerState.Roam;
+            killing = false;
             busy = false;
         }
 

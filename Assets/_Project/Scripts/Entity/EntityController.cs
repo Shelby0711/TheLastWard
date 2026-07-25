@@ -497,6 +497,13 @@ namespace LastWard.Entity
             {
                 if (player == null) continue;
                 if (!player.TryGetComponent<PlayerNetworkState>(out var pns) || !pns.IsAlive) continue;
+                // Upstairs is not its floor and not its meter. It cannot see them, so it was writing
+                // a DECAY to their discovery every frame — 0.30/s, which happens to be exactly what
+                // the Manager fills at. The two cancelled perfectly and the first-floor meter could
+                // never move, which is why the Manager stalked forever and never killed anyone.
+                // One entity owns a player's meter at a time, and that is decided by which floor
+                // they are standing on.
+                if (player.position.y > territoryMaxY) continue;
 
                 float current = pns.Discovery;
                 // Distance is computed up front rather than through an out-param: `CanEngage &&
@@ -537,7 +544,9 @@ namespace LastWard.Entity
                     held = Mathf.Clamp(held, 0f, sustainedMoveGrace * 3f);
                     moveTime[player] = held;
 
-                    if (held > sustainedMoveGrace && !pns.IsHidden)
+                    // Holding your breath stops the corridor's movement pressure dead. It is the
+                    // one counter to a floor that punishes simply crossing it.
+                    if (held > sustainedMoveGrace && !pns.IsHidden && !pns.IsHoldingBreath)
                     {
                         // Crouching still helps: it is the stealth verb everywhere else too.
                         float f = sustainedMoveFill * (pns.IsCrouching ? crouchSenseMultiplier : 1f);
@@ -1514,6 +1523,8 @@ namespace LastWard.Entity
                 if (Vector3.Distance(player.position, position) > 2.5f) continue;
                 if (!player.TryGetComponent<PlayerNetworkState>(out var pns)) continue;
                 if (!pns.IsAlive) continue;
+                // Silent. Whatever made that noise, it was not this player breathing.
+                if (pns.IsHoldingBreath) continue;
                 // Hiding muffles you, it doesn't silence you.
                 pns.ServerSetDiscovery(pns.Discovery + (pns.IsHidden ? bump * 0.25f : bump));
             }

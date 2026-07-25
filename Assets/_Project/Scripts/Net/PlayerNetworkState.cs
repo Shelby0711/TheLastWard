@@ -45,6 +45,11 @@ namespace LastWard.Net
         // suspended for its duration - the catch is a held beat, and a victim who can simply walk
         // out of it is not caught at all.
         private readonly NetworkVariable<bool> held = new NetworkVariable<bool>(false);
+        // Owner-written: the server's senses read this to decide whether you are making any sound at
+        // all. Replicated rather than local so the Entity cannot be lied to by a client.
+        private readonly NetworkVariable<bool> holdingBreath =
+            new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone,
+                NetworkVariableWritePermission.Owner);
 
         public Transform CameraPivot => cameraPivot;
         public float Pitch => pitch.Value;
@@ -64,6 +69,13 @@ namespace LastWard.Net
         public float Discovery => discovery.Value;
         public bool IsHidden => hidden.Value;
         public bool IsHeld => held.Value;
+        public bool IsHoldingBreath => holdingBreath.Value;
+
+        /// <summary>Owner-only. Pushed by PlayerBreathHold while V is down.</summary>
+        public void SetHoldingBreath(bool value)
+        {
+            if (IsOwner && holdingBreath.Value != value) holdingBreath.Value = value;
+        }
 
         /// <summary>Server-only. The Entity takes hold of this player for the catch sequence.</summary>
         public void ServerSetHeld(bool value)

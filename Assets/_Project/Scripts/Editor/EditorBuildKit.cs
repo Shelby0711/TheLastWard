@@ -149,6 +149,12 @@ namespace LastWard.EditorTools
             SetRef(breathing, "motor", motor);
             SetRef(breathing, "state", netState);
 
+            // Hold V to stop breathing. Capacity depends on how hard you were working when you
+            // started, so sprinting to cover costs you the seconds you then need to wait it out.
+            var breathHold = root.AddComponent<PlayerBreathHold>();
+            SetRef(breathHold, "motor", motor);
+            SetRef(breathHold, "state", netState);
+
             BuildPlayerBody(root);
 
             var networkPlayer = root.AddComponent<NetworkPlayer>();
@@ -476,6 +482,19 @@ namespace LastWard.EditorTools
             box.size = new Vector3(w + 0.06f, h + 0.06f, d + 0.06f);
 
             return root;
+        }
+
+        /// <summary>
+        /// Drops a point onto the first surface beneath it. Pickups authored at a guessed height hang
+        /// in mid-air; this puts them on the floor, or on the crate or table that happens to be under
+        /// them, without anyone hand-tuning a Y per item.
+        /// </summary>
+        public static Vector3 DropToSurface(Vector3 position, float restOffset = 0.06f)
+        {
+            if (Physics.Raycast(position + Vector3.up * 2.5f, Vector3.down, out var hit, 8f,
+                    ~0, QueryTriggerInteraction.Ignore))
+                return new Vector3(position.x, hit.point.y + restOffset, position.z);
+            return position;
         }
 
         public static GameObject CreateToolPickup(string itemId, string displayName, Vector3 position,

@@ -30,6 +30,7 @@ namespace LastWard.UI
             "<b>Q</b>            Hide / come out of a wardrobe, locker or bed\n" +
             "<b>Left Mouse</b>   Swing carried weapon  <i>— one hit, then it's gone</i>\n" +
             "<b>F</b>            Torch  <i>— makes you much easier to spot</i>\n" +
+            "<b>V</b>            Hold breath  <i>— silent, but only for as long as you have air</i>\n" +
             "<b>1 / 2</b>        Inventory slots\n\n" +
             "<b>Q / E</b>        While dead: switch who you're watching\n" +
             "<b>Left Mouse</b>   While dead: ping for the living\n\n" +

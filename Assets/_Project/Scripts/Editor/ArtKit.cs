@@ -198,8 +198,11 @@ namespace LastWard.EditorTools
                 break;
             }
 
-            Transform anchor = head != null ? head
-                : (visual.transform.parent != null ? visual.transform.parent : visual.transform);
+            // Parented to the ROOT, not the head bone. The bone is driven by the Animator, which the
+            // stutter driver hand-steps at 8fps while the body travels at full rate — so eyes hung on
+            // the bone visibly lagged behind and appeared to hang in the air as it moved. The root is
+            // what actually carries the creature through the world, so they stay welded to it.
+            Transform anchor = visual.transform.parent != null ? visual.transform.parent : visual.transform;
             Transform facingRef = visual.transform.parent != null ? visual.transform.parent : visual.transform;
 
             // Sized off the model, not the skeleton: bone scales in imported rigs are unreliable.

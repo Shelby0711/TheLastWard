@@ -94,6 +94,19 @@ namespace LastWard.Player
                 return;
             }
 
+            // Holding your breath means exactly that: every layer goes, including the heartbeat,
+            // which is the point — the silence is what you traded the timer for.
+            if (state != null && state.IsHoldingBreath)
+            {
+                Blend(heavy, 0f);
+                Blend(walk, 0f);
+                Blend(idle, 0f);
+                Blend(heartbeat, 0f);
+                // Exertion still bleeds off while you hold, so waiting it out does recover you.
+                exertion = Mathf.MoveTowards(exertion, 0f, Time.deltaTime / Mathf.Max(0.1f, recoverySeconds));
+                return;
+            }
+
             bool sprinting = motor != null && motor.IsSprinting && motor.IsMoving;
             bool moving = motor != null && motor.IsMoving && !sprinting;
 
