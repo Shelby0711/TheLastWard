@@ -183,24 +183,45 @@ namespace LastWard.EditorTools
             if (!TryGetBounds(visual, out var b)) return;
 
             var eyeMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-            eyeMat.SetColor("_BaseColor", eyeColor);   // unlit => always shows full colour = glows in the dark
+            eyeMat.SetColor("_BaseColor", eyeColor);   // unlit => always full colour = glows in the dark
 
-            Transform anchor = visual.transform.parent != null ? visual.transform.parent : visual.transform;
-            Vector3 fwd = anchor.forward;
-            Vector3 right = anchor.right;
-            float eyeY = b.max.y - b.size.y * 0.12f;                 // just below the crown
-            Vector3 face = new Vector3(b.center.x, eyeY, b.center.z) + fwd * (b.size.z * 0.42f);
-            float spacing = Mathf.Max(0.05f, b.size.x * 0.14f);
-            float scaleInParent = eyeDiameter / Mathf.Max(0.0001f, anchor.lossyScale.x);
+            // Anchor to the HEAD BONE where the rig has one. Deriving eye placement from the whole
+            // model's bounding box put them at the width of the SHOULDERS and well in front of the
+            // body — two dots hanging in mid-air beside its head. A head bone also means they track
+            // the skull through every animation instead of staying pinned to the root.
+            Transform head = null;
+            foreach (var t in visual.GetComponentsInChildren<Transform>(true))
+            {
+                string n = t.name.ToLowerInvariant();
+                if (!n.Contains("head") || n.Contains("headtop") || n.Contains("_end")) continue;
+                head = t;
+                break;
+            }
+
+            Transform anchor = head != null ? head
+                : (visual.transform.parent != null ? visual.transform.parent : visual.transform);
+            Transform facingRef = visual.transform.parent != null ? visual.transform.parent : visual.transform;
+
+            // Sized off the model, not the skeleton: bone scales in imported rigs are unreliable.
+            float headY = head != null ? head.position.y + b.size.y * 0.04f : b.max.y - b.size.y * 0.10f;
+            Vector3 centreOfFace = head != null
+                ? new Vector3(head.position.x, headY, head.position.z)
+                : new Vector3(b.center.x, headY, b.center.z);
+
+            float spacing = Mathf.Max(0.035f, b.size.x * 0.055f);   // eyes, not shoulders
+            float forward = Mathf.Max(0.06f, b.size.z * 0.16f);     // just proud of the face
+            float scaleInAnchor = eyeDiameter / Mathf.Max(0.0001f, anchor.lossyScale.x);
 
             foreach (float sgn in new[] { -1f, 1f })
             {
                 var eye = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 eye.name = "Eye";
                 UnityObject.DestroyImmediate(eye.GetComponent<Collider>());
-                eye.transform.SetParent(anchor, true);
-                eye.transform.position = face + right * (sgn * spacing);
-                eye.transform.localScale = Vector3.one * scaleInParent;
+                eye.transform.position = centreOfFace
+                    + facingRef.forward * forward
+                    + facingRef.right * (sgn * spacing);
+                eye.transform.SetParent(anchor, true);   // keep world pose, then ride the head
+                eye.transform.localScale = Vector3.one * scaleInAnchor;
                 eye.GetComponent<Renderer>().sharedMaterial = eyeMat;
             }
         }
@@ -1068,20 +1089,20 @@ namespace LastWard.EditorTools
         /// "Retreat" trigger — enough for increment 2 (perch, then crawl back into the dark and
         /// vanish when a player reaches its floor). Returns the wired Animator.
         /// </summary>
+        /// <summary>
+        /// The Manager's animator: one state per authored clip, every one reachable from Any State via
+        /// a trigger of the same name. A flat trigger-driven machine (rather than a blend tree) suits
+        /// this entity because it does not accelerate between gaits - it is doing one deliberate thing
+        /// at a time, and switching should be abrupt.
+        ///
+        /// Clips live in separate FBX files and bind to the rig by transform path (Generic), so they
+        /// must share its skeleton - they do, being the same source.
+        /// </summary>
         public static Animator SetupManagerAnimator(GameObject visual, string rigRelPath,
-            string idleRel, string retreatRel, string controllerName)
+            (string trigger, string clipRel, bool loop)[] clips, string controllerName)
         {
             var avatar = ConfigureGenericRig(rigRelPath);
-            ConfigureClip(idleRel, loop: true);
-            ConfigureClip(retreatRel, loop: false);
-
-            var idle = FindAnimationClip(ArtRoot + idleRel);
-            var retreat = FindAnimationClip(ArtRoot + retreatRel);
-            if (idle == null)
-            {
-                Debug.LogWarning($"[ArtPass] Manager idle clip not found in {idleRel} — will stand in bind pose.");
-                return visual.GetComponentInChildren<Animator>();
-            }
+            foreach (var c in clips) ConfigureClip(c.clipRel, c.loop);
 
             if (!AssetDatabase.IsValidFolder("Assets/_Project/Animations"))
                 AssetDatabase.CreateFolder("Assets/_Project", "Animations");
@@ -1091,19 +1112,23 @@ namespace LastWard.EditorTools
             var controller = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPath(ctrlPath);
             if (controller.layers.Length == 0) controller.AddLayer("Base");
             var sm = controller.layers[0].stateMachine;
-            controller.AddParameter("Retreat", AnimatorControllerParameterType.Trigger);
 
-            var idleState = sm.AddState("Idle");
-            idleState.motion = idle;
-            sm.defaultState = idleState;
-            if (retreat != null)
+            var bound = new List<string>();
+            UnityEditor.Animations.AnimatorState first = null;
+            foreach (var c in clips)
             {
-                var rs = sm.AddState("Retreat");
-                rs.motion = retreat;
-                var tr = idleState.AddTransition(rs);
+                var clip = FindAnimationClip(ArtRoot + c.clipRel);
+                if (clip == null) continue;
+                controller.AddParameter(c.trigger, AnimatorControllerParameterType.Trigger);
+                var st = sm.AddState(c.trigger);
+                st.motion = clip;
+                if (first == null) { first = st; sm.defaultState = st; }
+                var tr = sm.AddAnyStateTransition(st);
                 tr.hasExitTime = false;
-                tr.duration = 0.15f;
-                tr.AddCondition(UnityEditor.Animations.AnimatorConditionMode.If, 0f, "Retreat");
+                tr.duration = 0.1f;
+                tr.canTransitionToSelf = false;
+                tr.AddCondition(UnityEditor.Animations.AnimatorConditionMode.If, 0f, c.trigger);
+                bound.Add($"{c.trigger}='{clip.name}'");
             }
             EditorUtility.SetDirty(controller);
 
@@ -1116,7 +1141,7 @@ namespace LastWard.EditorTools
             foreach (var sk in visual.GetComponentsInChildren<SkinnedMeshRenderer>(true))
                 sk.updateWhenOffscreen = true;
 
-            Debug.Log($"[ArtPass] Manager animator: idle='{idle.name}' retreat='{(retreat != null ? retreat.name : "NONE")}' " +
+            Debug.Log($"[ArtPass] Manager animator: {bound.Count} clip(s) bound [{string.Join(", ", bound)}] " +
                       $"avatar={(avatar != null ? avatar.name : "NONE")}");
             return animator;
         }

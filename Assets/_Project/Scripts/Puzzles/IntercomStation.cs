@@ -91,6 +91,11 @@ namespace LastWard.Puzzles
 
         private IEnumerator FlashWrong()
         {
+            // The lock refuses, loudly. The meter already punished this; without a sound the player
+            // had no idea the attempt had even registered, let alone that it had cost them.
+            var bang = LastWard.Audio.GameSfx.Random(LastWard.Audio.GameSfx.WrongAttempt);
+            if (bang != null) AudioSource.PlayClipAtPoint(bang, transform.position, 1f);
+
             SetColor(WrongBase, WrongEmission);
             yield return new WaitForSeconds(wrongFlashSeconds);
             ApplyCorrectMask(puzzle.CorrectMask);
@@ -98,6 +103,10 @@ namespace LastWard.Puzzles
 
         private void SetColor(Color baseColor, Color emission)
         {
+            // A station is allowed to have no renderer at all (its visual may be swapped out during
+            // the art pass). Colour feedback is a nicety; throwing here killed the whole interaction
+            // and made the locks unusable, which is far worse than losing the tint.
+            if (rend == null) return;
             rend.GetPropertyBlock(mpb);
             mpb.SetColor(BaseColorId, baseColor);
             mpb.SetColor(EmissionColorId, emission);

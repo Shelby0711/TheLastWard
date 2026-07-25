@@ -630,10 +630,20 @@ namespace LastWard.EditorTools
             // Cold, jaundiced eyes — distinct from the Receptionist's red glow.
             ArtKit.MakeSilhouetteWithEyes(visual, new Color(0.9f, 0.86f, 0.55f), 0.06f);
 
-            // Idle + one-shot Retreat, retargeted from the separate animation FBXs onto the rig.
+            // Its full clip set. Trigger names match the hashes ManagerController fires.
+            const string AN = "Characters/Manager/Animations/";
             ArtKit.SetupManagerAnimator(visual, "Characters/Manager/Rig_Pugalo.fbx",
-                "Characters/Manager/Animations/Animation of breathing.fbx",
-                "Characters/Manager/Animations/Crawling_Backwards.fbx", "AC_Manager");
+                new (string, string, bool)[]
+                {
+                    ("Idle",      AN + "Idle_Pose.fbx",              true),
+                    ("Walk",      AN + "Roaming_Around.fbx",         true),
+                    ("Crawl",     AN + "Crawling.fbx",               true),
+                    ("CrawlBack", AN + "Crawling_Backwards.fbx",     true),
+                    ("StrafeL",   AN + "Left_Strafe_Walking.fbx",    true),
+                    ("StrafeR",   AN + "Right_Strafe_Walking.fbx",   true),
+                    ("Lift",      AN + "Animation of lifting.fbx",   false),
+                    ("Impact",    AN + "Impact animation.fbx",       false),
+                }, "AC_Manager");
             // The permanent stutter is the Manager's alone. ManagerController flips it on at spawn.
             visual.AddComponent<LastWard.Entity.EntityAnimationDriver>();
 
@@ -648,20 +658,37 @@ namespace LastWard.EditorTools
         /// </summary>
         private static void DressCorridorLocks(Transform scratch)
         {
-            var parent = new GameObject("CorridorLocks_Dressing").transform;
+            // The lock bodies are the stations' OWN boxes, reshaped and textured, rather than a mesh
+            // extracted from the horror kit and reparented in. That extraction kept failing silently:
+            // when it returned nothing the station was left with no renderer at all, which both made
+            // the locks invisible and threw every time the puzzle tried to tint them. Shaping the
+            // existing box is the same measure-don't-guess approach the rest of the level uses, and
+            // it cannot fail — the collider, the renderer and the visual are one object.
+            var lockMat = ArtKit.MakeTexturedMaterial(
+                "Props/HorrorKitV2/textures/LockBake-V2.0_1024.png", "M_DoorLock");
+
             foreach (var st in UnityObject.FindObjectsByType<LastWard.Puzzles.IntercomStation>(FindObjectsInactive.Include))
             {
-                // Hide the placeholder box but keep the object: it owns the collider the player
-                // interacts with, and the puzzle's colour feedback drives whatever renderer it finds.
-                if (st.TryGetComponent<Renderer>(out var box)) box.enabled = false;
+                // A padlock body: taller than wide, shallow, sitting proud of the door face.
+                st.transform.localScale = new Vector3(0.16f, 0.22f, 0.09f);
+                if (lockMat != null) EditorBuildKit.SetMaterial(st.gameObject, lockMat);
 
-                var padlock = PlaceHorrorKitItem(parent, scratch, $"Lock_{st.name}", 0.26f,
-                    "LockBake-V2.0_1024.png", "M_DoorLock", "Lock_");
-                if (padlock == null) continue;
-                padlock.transform.SetParent(st.transform, false);
-                padlock.transform.localPosition = Vector3.zero;
-                padlock.transform.localRotation = Quaternion.identity;
+                // The shackle — a thin bar over the top, so it reads as a padlock rather than a box.
+                var shackle = EditorBuildKit.CreateBox($"{st.name}_Shackle",
+                    st.transform.position + Vector3.up * 0.145f, new Vector3(0.075f, 0.075f, 0.05f));
+                UnityObject.DestroyImmediate(shackle.GetComponent<Collider>());   // the body owns interaction
+                if (lockMat != null) EditorBuildKit.SetMaterial(shackle, lockMat);
+                shackle.transform.SetParent(st.transform, true);
             }
+
+            // Hang them ON the door. They were loose objects at fixed world positions, so opening the
+            // door left three padlocks floating in the empty doorway. Parented to the leaf they swing
+            // with it, which is also the honest read: they are what was holding it shut.
+            var exitDoor = GameObject.Find("Door_FinalExit");
+            var leaf = exitDoor != null ? exitDoor.transform.Find("Leaf_L") : null;
+            if (leaf != null)
+                foreach (var st in UnityObject.FindObjectsByType<LastWard.Puzzles.IntercomStation>(FindObjectsInactive.Include))
+                    st.transform.SetParent(leaf, true);   // keep world pose
         }
 
         /// <summary>
@@ -800,6 +827,7 @@ namespace LastWard.EditorTools
             BuildFFRoom("FF_Theatre",  new Vector3(-5.5f, 0f, 75f), new Vector2(6f, 7f), FFWallB, FFFloorA, new Color(0.95f, 0.95f, 0.90f), 1.5f);
             BuildFFRoom("FF_Staff",    new Vector3(5.5f, 0f, 82f), new Vector2(6f, 6f), FFWallB, FFFloorB, new Color(0.85f, 0.70f, 0.60f), 1.5f);
 
+            CreateDarkCorners();
             DressFirstFloor();
             CreateManagerLore();
             CreateSecondFloorStairs();
@@ -926,6 +954,31 @@ namespace LastWard.EditorTools
 
             AddDimLight(new Vector3(0f, ceilY - 0.6f, botZ + 2f), 0.14f);
             AddDimLight(new Vector3(0f, y0 + 2.6f, topZ + 1f), 0.12f);
+        }
+
+        /// <summary>
+        /// Unlit black boxes tucked into the ceiling corners of the first-floor corridor. They are
+        /// pure matte black and take no light at all, so a torch sweeping the ceiling finds nothing
+        /// there — which is precisely what makes them somewhere the Manager can sit and watch. Two
+        /// glowing eyes in one of these reads as a thing in the dark rather than a model on a ceiling.
+        /// </summary>
+        private static void CreateDarkCorners()
+        {
+            var black = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            black.SetColor("_BaseColor", new Color(0.004f, 0.004f, 0.006f));
+
+            var root = new GameObject("FF_DarkCorners").transform;
+            for (float z = 62f; z <= 86f; z += 4f)
+            {
+                foreach (float sx in new[] { -1f, 1f })
+                {
+                    var box = EditorBuildKit.CreateBox($"DarkCorner_{(sx < 0 ? "W" : "E")}_{z:0}",
+                        new Vector3(sx * 1.15f, FFy + 2.55f, z), new Vector3(0.7f, 0.9f, 3.6f));
+                    UnityObject.DestroyImmediate(box.GetComponent<Collider>());   // shadow, not geometry
+                    EditorBuildKit.SetMaterial(box, black);
+                    box.transform.SetParent(root, true);
+                }
+            }
         }
 
         /// <summary>A corridor wall broken by doorways at the given Z centres.</summary>
@@ -1262,10 +1315,16 @@ namespace LastWard.EditorTools
                     "Mirror", 0.95f, centre + new Vector3(0f, 0f, size.y / 2f - 0.4f), 180f);
                 if (mirror != null)
                 {
+                    // Measured, not guessed. The wall's inner face is at (centre.z + size.y/2 -
+                    // wallT/2); a hardcoded 0.06 nudge assumed the mirror was thinner than it is, so
+                    // half of it still sat inside the masonry. Offsetting by its real half-depth puts
+                    // its BACK on the wall and the whole mirror in the room.
+                    float innerFace = centre.z + size.y / 2f - wallT / 2f;
+                    float halfDepth = ArtKit.TryGetBounds(mirror, out var mb) ? mb.size.z / 2f : 0.08f;
                     mirror.transform.position = new Vector3(
                         centre.x,
-                        1.15f,                                              // bottom edge at chest height
-                        centre.z + size.y / 2f - wallT / 2f - 0.06f);       // just proud of the wall face
+                        1.15f,                                  // bottom edge at chest height
+                        innerFace - halfDepth - 0.02f);         // clear of the wall, hanging on it
                     ArtKit.AutoTexture(mirror, "Props/Mirror/textures", alphaClip: false, pointFilter: false);
                 }
             }
@@ -1357,9 +1416,12 @@ namespace LastWard.EditorTools
                 new Vector3(0f, 1f, 52.5f),
                 new (string, Vector3)[]
                 {
-                    ("the top lock",    new Vector3(-1.15f, 1.95f, 53.78f)),
-                    ("the middle lock", new Vector3(-1.15f, 1.45f, 53.78f)),
-                    ("the bottom lock", new Vector3(-1.15f, 0.95f, 53.78f)),
+                    // Just left of the centre seam and clearly PROUD of the door face (leaves sit at
+                    // z=54 and are 0.12 thick, so the south face is z=53.94). At z=53.86 they hang in
+                    // front of the timber instead of being buried inside it.
+                    ("the top lock",    new Vector3(-0.34f, 1.90f, 53.86f)),
+                    ("the middle lock", new Vector3(-0.34f, 1.45f, 53.86f)),
+                    ("the bottom lock", new Vector3(-0.34f, 1.00f, 53.86f)),
                 },
                 new Vector3(0f, 1f, 51f));
 

@@ -34,14 +34,19 @@ namespace LastWard.Player
         private float heldBasePivotY;
         private bool heldWasActive;
         private float heldStartedAt;
+        private Transform caughtByOverride;
 
         /// <summary>
         /// Starts the catch camera timing, driven by the same RPC that triggers the catch animation
         /// so the two share one clock. Deriving it from the replicated hold flag let the animation
         /// start a frame or more earlier, which read as the arm lifting before the view did.
         /// </summary>
-        public void BeginCatch()
+        public void BeginCatch(Transform captor = null)
         {
+            // Told WHO has hold of you. It used to find the first EntityController in the scene, which
+            // is the ground-floor Receptionist - so being taken by the Manager upstairs pointed the
+            // camera at the wrong creature, on another floor.
+            if (captor != null) caughtByOverride = captor;
             if (cameraPivot != null) heldBasePivotY = cameraPivot.localPosition.y;
             heldStartedAt = Time.time;
             heldWasActive = true;
@@ -105,13 +110,18 @@ namespace LastWard.Player
                 lp.y = heldBasePivotY - heldCameraDrop * drop + heldCameraLift * lift;
                 cameraPivot.localPosition = lp;
 
-                if (caughtBy == null) caughtBy = FindAnyObjectByType<LastWard.Entity.EntityController>();
-                if (caughtBy != null)
+                Transform captorT = caughtByOverride;
+                if (captorT == null)
+                {
+                    if (caughtBy == null) caughtBy = FindAnyObjectByType<LastWard.Entity.EntityController>();
+                    if (caughtBy != null) captorT = caughtBy.transform;
+                }
+                if (captorT != null)
                 {
                     // Aimed at its FACE. Its transform is already raised off the floor, so this is
                     // a small offset on top of that - the old full-head value aimed over its skull,
                     // which is why being lifted showed the ceiling instead of the thing holding you.
-                    Vector3 to = caughtBy.transform.position + Vector3.up * heldAimHeight - cameraPivot.position;
+                    Vector3 to = captorT.position + Vector3.up * heldAimHeight - cameraPivot.position;
                     Vector3 flat = new Vector3(to.x, 0f, to.z);
                     if (flat.sqrMagnitude > 0.0001f)
                     {
@@ -133,6 +143,7 @@ namespace LastWard.Player
                 lp.y = heldBasePivotY;
                 cameraPivot.localPosition = lp;
                 heldWasActive = false;
+                caughtByOverride = null;
             }
 
             Vector2 look = input.Look * sensitivity;

@@ -47,6 +47,8 @@ namespace LastWard.Audio
         /// <summary>Its constant whisper, heard long before it is seen.</summary>
         /// <summary>Starts once the players begin taking the corridor apart. See ChantingDirector.</summary>
         public static AudioClip DemonChanting => Get("demon_chanting");
+        /// <summary>Forcing a lock the wrong way. Loud, and the building answers it.</summary>
+        public static AudioClip[] WrongAttempt => GetMany("loud-object-bang", "door-bang-echo");
         public static AudioClip ManagerWhisper => Get("Entity_Whispering");
         /// <summary>Its movement across surfaces - dry, wrong, not footsteps.</summary>
         public static AudioClip ManagerMovement => Get("Entity_movement_SFX");
