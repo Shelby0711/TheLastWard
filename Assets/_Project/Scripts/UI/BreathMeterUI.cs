@@ -37,7 +37,7 @@ namespace LastWard.UI
             var canvas = canvasGO.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 40;
-            canvasGO.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            MenuTheme.ScaleCanvas(canvasGO);
             group = canvasGO.AddComponent<CanvasGroup>();
             group.alpha = 0f;
             group.blocksRaycasts = false;

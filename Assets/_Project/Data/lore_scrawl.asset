@@ -14,9 +14,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
   clueId: lore_scrawl
   displayTitle: Scratched Into The Paint
-  bodyText: TURN IT OFF. IT CANNOT SEE THE LIGHT. IT NEVER COULD. IT HEARS YOU FUMBLING
-    WITH THE SWITCH AND IT COMES.
-  knowledgeValue: 3
+  bodyText: THE TORCH DOES NOTHING. HE NEVER COULD SEE IT. HE HEARS YOU.   AND HE
+    IS STILL ON THE DESK. HE IS STILL COUNTING. WE GAVE HIM THAT JOB TO BE KIND AND
+    HE HAS NEVER PUT IT DOWN -- NOBODY GETS OUT OF HIS BUILDING UNSIGNED.
+  knowledgeValue: 4
   spawnPointPoolId: 
   puzzleId: 
   isContradiction: 0

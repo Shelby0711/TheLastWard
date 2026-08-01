@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: tf_below
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: tf_below
+  displayTitle: Last Page Of The Duty Log
+  bodyText: All three of them are down there and they do not take turns. The blind
+    one at the desk who hears you, the tall one in the hall who sees your light,
+    the one that reads what you have learned - and in one room together, so there
+    is no way to be quiet and dark and ignorant at the same time. You need a light
+    to find the door. You need to move to reach it. You need to KNOW where it is.
+    Every one of those is fatal to something down there. That is not cruelty, it
+    is just what happens when three rules meet in one room. Whatever you do, do not
+    go down there owing anything.
+  knowledgeValue: 12
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

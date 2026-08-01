@@ -14,9 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
   clueId: stair_sign
   displayTitle: Stairwell Sign
-  bodyText: DOWN -- PLANT, MORGUE, RECORDS STORE.   UP -- WARD TWO, THEATRE, STAFF.  
-    Someone has scratched through the second line, over and over, until the paint
-    gave.
+  bodyText: UP -- WARD TWO, THEATRE, STAFF.   Below that, another line has been scratched
+    through the paint, over and over, until there was nothing left to read.
   knowledgeValue: 2
   spawnPointPoolId: 
   puzzleId: 

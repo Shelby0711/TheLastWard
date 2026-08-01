@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: tf_return
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: tf_return
+  displayTitle: Nailed Beside The Stairhead
+  bodyText: The floor is not the same on the way out. I do not mean you forget it
+    - I mean the doors are in different walls and the stair you came up is a cupboard
+    now. There is no trick to it and there is nothing to work out. Walk. Keep walking.
+    Do not stop in a room to get your bearings and DO NOT TURN ROUND to see how far
+    you have come, because the corridor behind you is the part that is listening,
+    and it comes when it is looked at. I have watched a man stand still for eleven
+    seconds. Only the light came back.
+  knowledgeValue: 12
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

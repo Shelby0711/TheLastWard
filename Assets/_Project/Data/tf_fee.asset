@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: tf_fee
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: tf_fee
+  displayTitle: Scratched Into A Drawer Front
+  bodyText: THE FEE IS NOT MONEY. Four of us came in. Three signatures on the sheet
+    and the fourth line left open, and we spent two days pretending we did not know
+    what the open line was for. It is for whoever is still standing in the room when
+    the rest of you have gone down. He does not take the weakest. He takes the one
+    the book knows best. God forgive me, I read everything I could find because I
+    thought knowing more would get me out.
+  knowledgeValue: 10
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

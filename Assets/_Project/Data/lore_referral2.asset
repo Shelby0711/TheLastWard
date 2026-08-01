@@ -13,11 +13,12 @@ MonoBehaviour:
   m_Name: lore_referral2
   m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
   clueId: lore_referral2
-  displayTitle: Ophthalmology - Discharge
-  bodyText: Bilateral, complete, and permanent. No further appointments necessary.
-    Patient declined a cane. Says he knows the building better than any of us and
-    frankly, having watched him on nights, I am inclined to agree.
-  knowledgeValue: 3
+  displayTitle: Ward Meeting - Minutes
+  bodyText: 'Bilateral, complete, permanent. He is not going home; there is nowhere
+    to send him. Agreed: give him the front desk -- signing the book, counting people
+    in and out. It costs us nothing and it will do him good to be needed.   And nobody
+    tell him the night book is copied out again by the day staff. Let him have it.'
+  knowledgeValue: 4
   spawnPointPoolId: 
   puzzleId: 
   isContradiction: 0

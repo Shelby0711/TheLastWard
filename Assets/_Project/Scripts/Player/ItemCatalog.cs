@@ -39,6 +39,18 @@ namespace LastWard.Player
 
         private static readonly Dictionary<string, ItemDef> Table = new Dictionary<string, ItemDef>
         {
+            // Deliberately the SAME bulk as a torch battery, so swapping one for the other looks like
+            // a free lateral trade. It is not: it is the asylum's entire light economy, two floors
+            // before the asylum exists. Nothing in the game flags it, and nothing should — the trap
+            // only springs if it looks like the least interesting thing in the bag.
+            { "matchbox",        new ItemDef("misc", 0.12f, 1, "box of matches") },
+
+            // The Morgue's pair. Capped at two so ONE player can carry both — that is the point of
+            // the choice: walk the maze twice alone, or split up on the worst floor in the building
+            // and meet at the door. Bulk is real enough that carrying both costs you something else.
+            { "basement_key_a",  new ItemDef("basement_key", 0.14f, 2, "brass basement key") },
+            { "basement_key_b",  new ItemDef("basement_key", 0.14f, 2, "steel basement key") },
+
             // Keys: small, but hard-capped at two. The three-lock door is built around this.
             { "lock_key_top",    new ItemDef("key", 0.10f, 2, "brass key") },
             { "lock_key_middle", new ItemDef("key", 0.10f, 2, "steel key") },
@@ -51,6 +63,13 @@ namespace LastWard.Player
 
             // Tools: bulky, and the crowbar is the single most expensive thing to carry.
             { "crowbar", new ItemDef("tool", 0.35f, 1, "crowbar") },
+            // Its own category, not "tool". Sharing one with the crowbar meant you could never hold
+            // both — and the vent needs the screwdriver while the gate behind you needed the bar, so
+            // that would have forced a trip for no reason anyone could see. Bulk still constrains it.
+            { "screwdriver", new ItemDef("screwdriver", 0.10f, 1, "screwdriver") },
+            // A ladder is an armful. Carrying it means carrying essentially nothing else, so fetching
+            // it is its own trip through a floor that is at its most hostile by then.
+            { "ladder", new ItemDef("ladder", 0.70f, 1, "ladder") },
 
             // Consumables.
             { "battery", new ItemDef("battery", 0.12f, 2, "flashlight battery") },

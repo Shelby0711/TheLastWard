@@ -51,6 +51,13 @@ namespace LastWard.Net
             new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone,
                 NetworkVariableWritePermission.Owner);
 
+        /// <summary>
+        /// This machine's own player. Several client-side systems (torch-reveal writing, HUD) need to
+        /// ask "where is the local player looking, and is their torch on" without holding a reference
+        /// through a chain that breaks when the player object is replaced on respawn.
+        /// </summary>
+        public static PlayerNetworkState LocalInstance { get; private set; }
+
         public Transform CameraPivot => cameraPivot;
         public float Pitch => pitch.Value;
         public bool IsAlive => alive.Value;
@@ -85,7 +92,66 @@ namespace LastWard.Net
 
         public void ServerSetDiscovery(float value)
         {
-            if (IsServer) discovery.Value = Mathf.Clamp01(value);
+            if (!IsServer) return;
+            discovery.Value = Mathf.Clamp01(value);
+            lastMeterWrite = Time.time;
+        }
+
+        // ---------------------------------------------------------------- the meter's safety net
+        //
+        // The fear meter is owned by exactly one entity at a time, chosen by which floor you are
+        // standing on. That left two holes big enough to be fatal, and both showed up as the same
+        // symptom: a meter that fills and then never comes down again.
+        //
+        //   1. The Manager skips any player outside its perception range before it reaches the
+        //      relief branch, so walking away from it froze the meter instead of calming it.
+        //   2. No entity claims the Morgue at all, so up there nothing wrote the meter, ever.
+        //
+        // Either way the meter sat pinned at 1.0 while the player did everything right, and the
+        // moment they came back within range of a Manager it killed them on the first frame.
+        //
+        // So: if nothing has written this meter for a moment, nothing is hunting this player, and
+        // it decays on its own. Entities write every frame while they own you, so this only ever
+        // runs in the gaps — it cannot fight an entity for control of the meter, which is the bug
+        // that this exact system has produced twice before.
+
+        [Header("Fear meter")]
+        [Tooltip("Decay per second while no entity is writing the meter. Nothing is hunting you, " +
+            "so the fear has to come off on its own or leaving a floor is a death sentence.")]
+        [SerializeField] private float unclaimedDecayPerSecond = 0.22f;
+        [Tooltip("How long after the last entity write before the meter counts as unclaimed. Must " +
+            "comfortably exceed one frame, or it will race an entity that is writing every tick.")]
+        [SerializeField] private float unclaimedAfter = 0.4f;
+
+        private float lastMeterWrite = -999f;
+        private int lastFloor = -1;
+
+        /// <summary>
+        /// Which floor a height belongs to. Boundaries sit in the empty air between slabs (0, 3.2,
+        /// 6.4 and 9.8), so the only place the answer changes is partway up a staircase — which is
+        /// exactly where a player should stop carrying the last floor's fear.
+        /// </summary>
+        public static int FloorIndexOf(float y) =>
+            y < 1.8f ? 0 : y < 4.9f ? 1 : y < 8.2f ? 2 : 3;
+
+        private void ServerTickMeter()
+        {
+            // Changing floors clears it outright. Every floor is a separate reckoning: the asylum
+            // must not kill you for noise you made downstairs, and the Morgue must not kill you for
+            // the asylum. This used to be done by the Inspector as a side effect of its targeting
+            // loop, which meant it only ever happened on the one floor the Inspector patrols.
+            int floor = FloorIndexOf(transform.position.y);
+            if (floor != lastFloor)
+            {
+                lastFloor = floor;
+                discovery.Value = 0f;
+                lastMeterWrite = Time.time;
+                return;
+            }
+
+            if (discovery.Value <= 0f) return;
+            if (Time.time - lastMeterWrite < unclaimedAfter) return;
+            discovery.Value = Mathf.Max(0f, discovery.Value - unclaimedDecayPerSecond * Time.deltaTime);
         }
 
         public void ServerSetHidden(bool value)
@@ -98,6 +164,7 @@ namespace LastWard.Net
 
         public override void OnNetworkSpawn()
         {
+            if (IsOwner) LocalInstance = this;
             flashlightOn.OnValueChanged += OnFlashlightChanged;
             alive.OnValueChanged += OnAliveChanged;
             ApplyFlashlight(flashlightOn.Value);
@@ -105,6 +172,7 @@ namespace LastWard.Net
 
         public override void OnNetworkDespawn()
         {
+            if (LocalInstance == this) LocalInstance = null;
             flashlightOn.OnValueChanged -= OnFlashlightChanged;
             alive.OnValueChanged -= OnAliveChanged;
         }
@@ -123,6 +191,10 @@ namespace LastWard.Net
         /// </summary>
         private void Update()
         {
+            // Before every early return below — the meter's safety net must not be gated on this
+            // player happening to own a working flashlight.
+            if (IsServer && alive.Value) ServerTickMeter();
+
             if (flashlight == null) return;
             if (baseFlashlightIntensity < 0f) baseFlashlightIntensity = flashlight.intensity;
             if (!flashlightOn.Value) return;

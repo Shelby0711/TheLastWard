@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: tf_alone
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: tf_alone
+  displayTitle: Folded Into A Key Envelope
+  bodyText: If you are on your own then there is no fee, and that is not mercy -
+    it is that there is nobody left to charge. What he wants from a single applicant
+    is an ACCOUNT. The whole of it, start to end, every name and every number, and
+    he will know the moment you are guessing. The ones who go down there half-informed
+    do not come back up and they do not stop either. You have heard them. That is
+    what the walking is.
+  knowledgeValue: 10
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

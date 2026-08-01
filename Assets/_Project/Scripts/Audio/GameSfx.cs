@@ -47,6 +47,10 @@ namespace LastWard.Audio
         /// <summary>Its constant whisper, heard long before it is seen.</summary>
         /// <summary>Starts once the players begin taking the corridor apart. See ChantingDirector.</summary>
         public static AudioClip DemonChanting => Get("demon_chanting");
+        /// <summary>Dragging yourself through the duct.</summary>
+        public static AudioClip VentCrawl => Get("vent-crawling");
+        /// <summary>Dropping out of the duct onto the surviving flight.</summary>
+        public static AudioClip Landing => Get("landing");
         /// <summary>Forcing a lock the wrong way. Loud, and the building answers it.</summary>
         public static AudioClip[] WrongAttempt => GetMany("loud-object-bang", "door-bang-echo");
         public static AudioClip ManagerWhisper => Get("Entity_Whispering");
@@ -76,6 +80,14 @@ namespace LastWard.Audio
         public static AudioClip BreathingWalkFast => Get("breathing-faster-walking");
         public static AudioClip FootstepsInterior => Get("running-interior");
         public static AudioClip FootstepsGravel => Get("running-on-gravel");
+
+        // --- the asylum (second floor) ---
+        /// <summary>A cell gate hauled open on rusted runners.</summary>
+        public static AudioClip GateOpen => Get("gate_opening");
+        /// <summary>The strike. Plays for the three seconds you are knelt over it, win or lose.</summary>
+        public static AudioClip MatchStrike => Get("matchstick_lighting");
+        /// <summary>The first floor's barred hallway gate sliding aside.</summary>
+        public static AudioClip HallwayGate => Get("hallway_jail_door_Opening");
 
         // --- events ---------------------------------------------------------------------------
         public static AudioClip DoorOpen => Get("opening-door");

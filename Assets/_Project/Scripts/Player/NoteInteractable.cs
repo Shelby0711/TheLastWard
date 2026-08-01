@@ -20,7 +20,10 @@ namespace LastWard.Player
         public void Interact(ulong playerId)
         {
             if (clue == null) return;
-            NoteReaderUI.Instance?.Show(clue.displayTitle, clue.bodyText);
+            // Rendered through RunCodes, so a note's numbers match the lock THIS run. The clue asset
+            // stores a template; the run supplies the figures.
+            string body = RunCodes.Instance != null ? RunCodes.Instance.Fill(clue.bodyText) : clue.bodyText;
+            NoteReaderUI.Instance?.Show(clue.displayTitle, body);
 
             if (!readLocally)
             {

@@ -13,6 +13,12 @@ namespace LastWard.Player
 
         private float yaw;
         private float pitch;
+
+        /// <summary>
+        /// Eye height in local space while something else is driving it, or negative for "not mine".
+        /// Set by the Inspector's kill so the camera can be lifted to its head and slammed down.
+        /// </summary>
+        public float ScriptedEyeHeight { get; set; } = -1f;
         [Tooltip("How far the view drops as it takes hold. Looking UP at it is what puts its face " +
             "in frame and makes it loom; at standing eye height you only get its chest.")]
         [SerializeField] private float heldCameraDrop = 0.45f;
@@ -107,7 +113,12 @@ namespace LastWard.Player
                 lift = Mathf.SmoothStep(0f, 1f, lift);
 
                 Vector3 lp = cameraPivot.localPosition;
-                lp.y = heldBasePivotY - heldCameraDrop * drop + heldCameraLift * lift;
+                // A scripted grab owns the eye height outright. The Watcher's drop-then-lift curve is
+                // a struggle read from below; being hoisted three metres and driven into the floor is
+                // a different shape entirely, and blending the two produces neither.
+                lp.y = ScriptedEyeHeight >= 0f
+                    ? ScriptedEyeHeight
+                    : heldBasePivotY - heldCameraDrop * drop + heldCameraLift * lift;
                 cameraPivot.localPosition = lp;
 
                 Transform captorT = caughtByOverride;

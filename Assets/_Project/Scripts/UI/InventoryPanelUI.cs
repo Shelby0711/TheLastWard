@@ -42,22 +42,26 @@ namespace LastWard.UI
             canvasGO.transform.SetParent(transform, false);
             var canvas = canvasGO.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 60;
-            canvasGO.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            // Above GameMenuUI's 150. At 60 it drew behind the menu's own backdrop, so opening
+            // the Inventory tab showed a dimmed ghost of the list under a solid panel.
+            canvas.sortingOrder = 160;
+            MenuTheme.ScaleCanvas(canvasGO);
             canvasGO.AddComponent<GraphicRaycaster>();
             group = canvasGO.AddComponent<CanvasGroup>();
             group.alpha = 0f;
             group.blocksRaycasts = false;
 
-            var panel = MakeRect(canvasGO.transform, new Vector2(430f, 330f), new Color(0.04f, 0.04f, 0.05f, 0.94f));
+            // Sized and placed to sit in the menu's right-hand content column rather than dead
+            // centre, so the two panels read as one screen instead of two stacked windows.
+            var panel = MakeRect(canvasGO.transform, new Vector2(660f, 470f), new Color(0f, 0f, 0f, 0f));
             panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 0.5f);
             panel.pivot = new Vector2(0.5f, 0.5f);
-            panel.anchoredPosition = Vector2.zero;
+            panel.anchoredPosition = new Vector2(200f, -30f);
 
-            header = MakeLabel(panel, "INVENTORY", 15, TextAnchor.UpperLeft,
-                new Vector2(400f, 22f), new Vector2(16f, -12f));
-            capacity = MakeLabel(panel, "", 12, TextAnchor.UpperLeft,
-                new Vector2(400f, 18f), new Vector2(16f, -34f));
+            header = MakeLabel(panel, "CARRYING", 20, TextAnchor.UpperLeft,
+                new Vector2(500f, 28f), new Vector2(16f, -10f));
+            capacity = MakeLabel(panel, "", 16, TextAnchor.UpperLeft,
+                new Vector2(500f, 22f), new Vector2(16f, -38f));
 
             var listGO = new GameObject("List");
             listGO.transform.SetParent(panel, false);
@@ -65,8 +69,8 @@ namespace LastWard.UI
             listRoot.anchorMin = new Vector2(0f, 1f);
             listRoot.anchorMax = new Vector2(0f, 1f);
             listRoot.pivot = new Vector2(0f, 1f);
-            listRoot.anchoredPosition = new Vector2(16f, -58f);
-            listRoot.sizeDelta = new Vector2(400f, 250f);
+            listRoot.anchoredPosition = new Vector2(16f, -74f);
+            listRoot.sizeDelta = new Vector2(620f, 360f);
         }
 
         /// <summary>Called by ControlsPanelUI when the Inventory tab is active.</summary>
@@ -76,12 +80,37 @@ namespace LastWard.UI
             if (group == null) return;
             group.alpha = value ? 1f : 0f;
             group.blocksRaycasts = value;
-            if (value) Rebuild();
+            if (!value) return;
+            lastSignature = Signature();
+            Rebuild();
         }
+
+        // Rebuilt ONLY when something changes. Doing it every frame destroyed and recreated every
+        // row continuously, so a Button never survived long enough for press-and-release to land on
+        // the same object — which is why DROP could not be clicked at all.
+        private int lastSignature = -1;
 
         private void Update()
         {
-            if (shown) Rebuild();
+            if (!shown) return;
+            int sig = Signature();
+            if (sig == lastSignature) return;
+            lastSignature = sig;
+            Rebuild();
+        }
+
+        /// <summary>Cheap hash of what is carried and what is selected, to detect real changes.</summary>
+        private int Signature()
+        {
+            var inv = PlayerInventory.Local;
+            if (inv == null) return 0;
+            int h = 17 + inv.SelectedSlot * 31;
+            for (int i = 0; i < inv.Capacity; i++)
+            {
+                string id = inv.GetSlotAt(i);
+                h = h * 31 + (id == null ? 0 : id.GetHashCode());
+            }
+            return h;
         }
 
         private void Rebuild()
@@ -115,18 +144,30 @@ namespace LastWard.UI
             var def = ItemCatalog.Get(itemId);
             float y = -row * 26f;
 
+            bool selected = PlayerInventory.Local != null && PlayerInventory.Local.SelectedSlot == slotIndex;
+
             var rowGO = new GameObject($"Row_{itemId}");
             rowGO.transform.SetParent(listRoot, false);
-            var rt = rowGO.AddComponent<RectTransform>();
+            // The row itself is a button: clicking it selects that item, so G drops what you chose
+            // rather than whatever happened to be first. The highlight is the only feedback there is
+            // for which slot G is pointed at.
+            var rowImg = rowGO.AddComponent<Image>();
+            rowImg.color = selected ? new Color(0.22f, 0.24f, 0.20f, 0.9f) : new Color(1f, 1f, 1f, 0.03f);
+            int selIndex = slotIndex;
+            rowGO.AddComponent<Button>().onClick.AddListener(() =>
+                PlayerInventory.Local?.SelectSlotIndex(selIndex));
+
+            var rt = rowGO.GetComponent<RectTransform>();
             rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
             rt.pivot = new Vector2(0f, 1f);
             rt.anchoredPosition = new Vector2(0f, y);
-            rt.sizeDelta = new Vector2(400f, 24f);
+            rt.sizeDelta = new Vector2(620f, 30f);
             rows.Add(rowGO);
 
             int left = PlayerInventory.Local != null ? PlayerInventory.Local.UsesLeft(itemId) : -1;
             string wear = left >= 0 ? $"   <color=#C08040>{left} use(s) left</color>" : string.Empty;
-            MakeLabel(rt, $"{def.Display}   <color=#7A8A7A>({def.Bulk * 100f:0}% of bag)</color>{wear}",
+            string mark = selected ? "<color=#B8C8A0>> </color>" : "  ";
+            MakeLabel(rt, $"{mark}{def.Display}   <color=#7A8A7A>({def.Bulk * 100f:0}% of bag)</color>{wear}",
                 12, TextAnchor.MiddleLeft, new Vector2(320f, 24f), new Vector2(0f, 0f));
 
             // One button per item, so the choice is explicit rather than "whatever is selected".
@@ -137,7 +178,7 @@ namespace LastWard.UI
             var brt = btnGO.GetComponent<RectTransform>();
             brt.anchorMin = brt.anchorMax = new Vector2(1f, 0.5f);
             brt.pivot = new Vector2(1f, 0.5f);
-            brt.sizeDelta = new Vector2(64f, 20f);
+            brt.sizeDelta = new Vector2(78f, 26f);
             brt.anchoredPosition = new Vector2(0f, 0f);
 
             MakeLabel(brt, "DROP", 11, TextAnchor.MiddleCenter, new Vector2(64f, 20f), Vector2.zero);

@@ -271,6 +271,11 @@ namespace LastWard.EditorTools
         /// the room through the gaps. The panels are ordinary solid colliders, which is also what
         /// the interaction ray hits: it runs with QueryTriggerInteraction.Ignore, so a trigger
         /// volume here would never be targetable.
+        ///
+        /// Everything below the geometry is age. It used to be flat untextured panels with a cube
+        /// glued on for a handle, and it looked exactly like what it was. Now it is water-damaged
+        /// planking on a rusted carcass, one slat has fallen out, the door sits crooked on a dropped
+        /// hinge, and the webs say nobody has opened it in a very long time.
         /// </summary>
         public static GameObject CreateWardrobeHidingSpot(string name, Vector3 position, string enterPrompt, float yaw)
         {
@@ -283,8 +288,13 @@ namespace LastWard.EditorTools
             root.transform.position = position;
             root.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
 
-            var wood = MakeMaterial(new Color(0.13f, 0.1f, 0.08f));
-            var trim = MakeMaterial(new Color(0.09f, 0.07f, 0.055f));
+            // Seeded off the name so two wardrobes in one room decay differently but a given
+            // wardrobe is identical on every rebuild.
+            var rng = new System.Random(name.GetHashCode());
+
+            var wood = DecayKit.Wood() ?? MakeMaterial(new Color(0.13f, 0.1f, 0.08f));
+            var trim = DecayKit.Wood() ?? MakeMaterial(new Color(0.09f, 0.07f, 0.055f));
+            var iron = DecayKit.Rust() ?? MakeMaterial(new Color(0.09f, 0.07f, 0.055f));
 
             AddPanel(root.transform, "Back", new Vector3(0f, height / 2f, -depth / 2f + panel / 2f), new Vector3(width, height, panel), wood);
             AddPanel(root.transform, "Side_L", new Vector3(-width / 2f + panel / 2f, height / 2f, 0f), new Vector3(panel, height, depth), wood);
@@ -297,15 +307,63 @@ namespace LastWard.EditorTools
             const float slatHeight = 0.1f;
             const float slatGap = 0.055f;
             float frontZ = depth / 2f - panel / 2f;
-            for (float y = 0.16f; y < height - 0.16f; y += slatHeight + slatGap)
-                AddPanel(root.transform, "Slat", new Vector3(0f, y, frontZ), new Vector3(width - 0.1f, slatHeight, panel * 0.7f), trim);
+
+            var slatYs = new System.Collections.Generic.List<float>();
+            for (float y = 0.16f; y < height - 0.16f; y += slatHeight + slatGap) slatYs.Add(y);
+            // One slat is gone and one hangs by a single nail. The gap they leave is a wider
+            // sightline, which is a small real advantage for picking this wardrobe.
+            int missing = slatYs.Count > 4 ? 2 + rng.Next(slatYs.Count - 4) : -1;
+            int hanging = missing >= 0 ? Mathf.Min(slatYs.Count - 1, missing + 2 + rng.Next(2)) : -1;
+
+            for (int i = 0; i < slatYs.Count; i++)
+            {
+                if (i == missing) continue;
+                var slat = AddPanel(root.transform, "Slat", new Vector3(0f, slatYs[i], frontZ),
+                    new Vector3(width - 0.1f, slatHeight, panel * 0.7f), trim);
+                if (i == hanging)
+                {
+                    // Swung down off its left end. Kept as one piece rather than snapped, so it
+                    // still reads as a slat instead of as debris stuck to the door.
+                    slat.transform.localRotation = Quaternion.Euler(0f, 0f, -14f);
+                    slat.transform.localPosition += new Vector3(0.04f, -0.05f, 0.012f);
+                }
+                else
+                {
+                    slat.transform.localRotation = Quaternion.Euler(0f, 0f, (float)(rng.NextDouble() * 2.4 - 1.2));
+                }
+            }
 
             // Frame around the doors so the front doesn't read as floating slats.
             AddPanel(root.transform, "Frame_L", new Vector3(-width / 2f + 0.04f, height / 2f, frontZ), new Vector3(0.08f, height, panel), wood);
             AddPanel(root.transform, "Frame_R", new Vector3(width / 2f - 0.04f, height / 2f, frontZ), new Vector3(0.08f, height, panel), wood);
 
-            var handle = AddPanel(root.transform, "Handle", new Vector3(0.1f, 1.05f, frontZ + 0.04f), new Vector3(0.04f, 0.22f, 0.04f), trim);
-            handle.transform.localRotation = Quaternion.Euler(0f, 0f, 6f);
+            // A real handle: a backplate, a spindle out of it, and a turned knob on the end. Three
+            // pieces is the difference between "there is a handle here" and "there is a cube here".
+            DecayKit.Part(root.transform, "Handle_Plate", PrimitiveType.Cube,
+                new Vector3(0.11f, 1.05f, frontZ + 0.035f), new Vector3(0f, 0f, 4f),
+                new Vector3(0.075f, 0.13f, 0.014f), iron);
+            DecayKit.Part(root.transform, "Handle_Spindle", PrimitiveType.Cylinder,
+                new Vector3(0.11f, 1.05f, frontZ + 0.065f), new Vector3(90f, 0f, 0f),
+                new Vector3(0.022f, 0.028f, 0.022f), iron);
+            DecayKit.Part(root.transform, "Handle_Knob", PrimitiveType.Sphere,
+                new Vector3(0.11f, 1.048f, frontZ + 0.098f), Vector3.zero,
+                new Vector3(0.062f, 0.05f, 0.062f), iron);
+
+            // Two strap hinges down the closing edge, the lower one dropped out of true.
+            DecayKit.Part(root.transform, "Hinge_Top", PrimitiveType.Cube,
+                new Vector3(-width / 2f + 0.05f, height - 0.42f, frontZ + 0.03f), Vector3.zero,
+                new Vector3(0.05f, 0.11f, 0.02f), iron, collide: false);
+            DecayKit.Part(root.transform, "Hinge_Bottom", PrimitiveType.Cube,
+                new Vector3(-width / 2f + 0.05f, 0.38f, frontZ + 0.03f), new Vector3(0f, 0f, -9f),
+                new Vector3(0.05f, 0.11f, 0.02f), iron, collide: false);
+
+            // Skirting rail across the bottom, split and pulling away from the carcass.
+            DecayKit.Part(root.transform, "Kick_Rail", PrimitiveType.Cube,
+                new Vector3(-0.06f, 0.075f, frontZ + 0.02f), new Vector3(0f, 0f, 2.5f),
+                new Vector3(width * 0.78f, 0.1f, 0.022f), wood, collide: false);
+
+            DecayKit.WebBox(root.transform, new Vector3(width / 2f, 0f, depth / 2f), height,
+                name.GetHashCode(), 3);
 
             // Standing on the wardrobe floor puts the camera (1.6m up the player rig) inside the
             // cavity. Pushed back toward the rear panel rather than centred: dead centre leaves the
@@ -328,22 +386,46 @@ namespace LastWard.EditorTools
             root.transform.position = position;
             root.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
 
-            var metal = MakeMaterial(new Color(0.15f, 0.15f, 0.16f));
-            var sheet = MakeMaterial(new Color(0.3f, 0.29f, 0.26f));
+            var rng = new System.Random(name.GetHashCode());
+            var metal = DecayKit.Rust() ?? MakeMaterial(new Color(0.15f, 0.15f, 0.16f));
+            var sheet = DecayKit.Ticking() ?? MakeMaterial(new Color(0.3f, 0.29f, 0.26f));
 
             foreach (float sx in new[] { -1f, 1f })
             {
                 foreach (float sz in new[] { -1f, 1f })
                 {
-                    AddPanel(root.transform, "Leg",
+                    // Round legs on castors, and none of the four is quite plumb any more.
+                    DecayKit.Part(root.transform, "Leg", PrimitiveType.Cylinder,
                         new Vector3(sx * (width / 2f - 0.07f), clearance / 2f, sz * (length / 2f - 0.07f)),
-                        new Vector3(0.07f, clearance, 0.07f), metal);
+                        new Vector3((float)(rng.NextDouble() * 3.0 - 1.5), 0f, (float)(rng.NextDouble() * 3.0 - 1.5)),
+                        new Vector3(0.05f, clearance / 2f, 0.05f), metal);
+                    DecayKit.Part(root.transform, "Castor", PrimitiveType.Sphere,
+                        new Vector3(sx * (width / 2f - 0.07f), 0.035f, sz * (length / 2f - 0.07f)),
+                        Vector3.zero, new Vector3(0.07f, 0.07f, 0.07f), metal, collide: false);
                 }
             }
 
             AddPanel(root.transform, "Frame", new Vector3(0f, clearance + 0.05f, 0f), new Vector3(width, 0.1f, length), metal);
-            AddPanel(root.transform, "Mattress", new Vector3(0f, clearance + 0.21f, 0f), new Vector3(width - 0.06f, 0.22f, length - 0.06f), sheet);
+            // The mattress has collapsed in the middle and slipped off the frame at one corner —
+            // the two things a bed nobody has made in forty years actually does.
+            var mattress = AddPanel(root.transform, "Mattress",
+                new Vector3(0.035f, clearance + 0.185f, 0.02f),
+                new Vector3(width - 0.06f, 0.17f, length - 0.06f), sheet);
+            mattress.transform.localRotation = Quaternion.Euler(1.6f, 2.5f, -1.1f);
             AddPanel(root.transform, "Headboard", new Vector3(0f, clearance + 0.45f, -length / 2f + 0.04f), new Vector3(width, 0.7f, 0.08f), metal);
+
+            // Rails down the headboard, one of them bent. Hospital beds have bars; a flat slab
+            // reads as a bench.
+            for (int i = -1; i <= 1; i++)
+            {
+                DecayKit.Part(root.transform, "Head_Bar", PrimitiveType.Cylinder,
+                    new Vector3(i * width * 0.3f, clearance + 0.45f, -length / 2f + 0.09f),
+                    new Vector3(0f, 0f, i == 1 ? 7f : 0f),
+                    new Vector3(0.032f, 0.34f, 0.032f), metal, collide: false);
+            }
+
+            DecayKit.WebBox(root.transform, new Vector3(width / 2f, 0f, length / 2f),
+                clearance + 0.1f, name.GetHashCode(), 2);
 
             // The player rig's camera sits 1.6m above its root, so the root has to go well under the
             // floor to get the viewpoint down into the gap. Safe because the CharacterController is
@@ -391,10 +473,16 @@ namespace LastWard.EditorTools
             root.transform.position = position;
             root.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
 
-            var body = MakeMaterial(new Color(0.12f, 0.12f, 0.13f));
-            var doorMat = MakeMaterial(string.IsNullOrEmpty(requiredItemId)
-                ? new Color(0.16f, 0.15f, 0.14f)
-                : new Color(0.2f, 0.13f, 0.08f));   // locked ones read warmer, so they stand out
+            var rng = new System.Random(name.GetHashCode());
+            bool locked = !string.IsNullOrEmpty(requiredItemId);
+            // Wooden cupboards and crates, steel lockers and cabinets — the name says which, so the
+            // level author doesn't have to pass a flag for something already in the identifier.
+            bool wooden = name.IndexOf("Crate", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                          name.IndexOf("Cupboard", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+            var body = (wooden ? DecayKit.Wood() : DecayKit.Enamel()) ?? MakeMaterial(new Color(0.12f, 0.12f, 0.13f));
+            var doorMat = body;
+            var iron = DecayKit.Rust() ?? MakeMaterial(new Color(0.09f, 0.07f, 0.055f));
 
             AddPanel(root.transform, "Back", new Vector3(0f, h / 2f, -d / 2f + panel / 2f), new Vector3(w, h, panel), body);
             AddPanel(root.transform, "Side_L", new Vector3(-w / 2f + panel / 2f, h / 2f, 0f), new Vector3(panel, h, d), body);
@@ -402,19 +490,82 @@ namespace LastWard.EditorTools
             AddPanel(root.transform, "Top", new Vector3(0f, h - panel / 2f, 0f), new Vector3(w, panel, d), body);
             AddPanel(root.transform, "Bottom", new Vector3(0f, panel / 2f, 0f), new Vector3(w, panel, d), body);
 
+            // Feet, so the carcass isn't welded to the floor. Steel lockers stand on a plinth;
+            // wooden ones sit on four blocks, and one of them has rotted down.
+            if (wooden)
+            {
+                foreach (float sx in new[] { -1f, 1f })
+                    foreach (float sz in new[] { -1f, 1f })
+                        DecayKit.Part(root.transform, "Foot", PrimitiveType.Cube,
+                            new Vector3(sx * (w / 2f - 0.07f), 0.02f, sz * (d / 2f - 0.07f)), Vector3.zero,
+                            new Vector3(0.09f, sx * sz > 0f ? 0.04f : 0.055f, 0.09f), iron, collide: false);
+            }
+            else
+            {
+                DecayKit.Part(root.transform, "Plinth", PrimitiveType.Cube,
+                    new Vector3(0f, 0.035f, 0f), Vector3.zero,
+                    new Vector3(w - 0.05f, 0.07f, d - 0.05f), iron, collide: false);
+            }
+
             // Hinged on its left edge so it swings out of the way rather than sliding through itself.
             var hinge = new GameObject("Door");
             hinge.transform.SetParent(root.transform, false);
             hinge.transform.localPosition = new Vector3(-w / 2f + panel, h / 2f, d / 2f - panel / 2f);
             var doorPanel = AddPanel(hinge.transform, "Panel", new Vector3(w / 2f - panel, 0f, 0f), new Vector3(w - panel, h - panel * 2f, panel), doorMat);
-            SetMaterial(doorPanel, doorMat);
 
-            if (!string.IsNullOrEmpty(requiredItemId))
+            // Detailing on the door face. Steel lockers get a pressed vent slot and a dent; wooden
+            // ones get a panel moulding that has split. Either way the face stops being a slab.
+            if (wooden)
             {
-                var latch = AddPanel(hinge.transform, "Latch", new Vector3(w - panel * 2.2f, 0f, 0.04f),
-                    new Vector3(0.09f, 0.16f, 0.05f), MakeEmissive(new Color(0.25f, 0.2f, 0.06f), new Color(0.4f, 0.3f, 0.06f)));
-                SetMaterial(latch, MakeEmissive(new Color(0.25f, 0.2f, 0.06f), new Color(0.45f, 0.33f, 0.07f)));
+                DecayKit.Part(hinge.transform, "Moulding", PrimitiveType.Cube,
+                    new Vector3(w / 2f - panel, h * 0.16f, 0.022f), new Vector3(0f, 0f, 1.4f),
+                    new Vector3((w - panel) * 0.72f, (h - panel * 2f) * 0.44f, 0.014f), body, collide: false, immobile: false);
             }
+            else
+            {
+                for (int i = 0; i < 3; i++)
+                    DecayKit.Part(hinge.transform, "Vent_Slot", PrimitiveType.Cube,
+                        new Vector3(w / 2f - panel, h * 0.30f - i * 0.045f, 0.021f), Vector3.zero,
+                        new Vector3((w - panel) * 0.42f, 0.014f, 0.012f), iron, collide: false, immobile: false);
+                // A dent. Somebody hit this door hard enough that it never shut square again.
+                DecayKit.Part(hinge.transform, "Dent", PrimitiveType.Sphere,
+                    new Vector3(w / 2f - panel * 0.4f, -h * 0.18f, -0.02f), Vector3.zero,
+                    new Vector3(0.24f, 0.19f, 0.05f), body, collide: false, immobile: false);
+            }
+
+            // Strap hinges on the pivot edge — the door reads as attached to something.
+            foreach (float hy in new[] { (h - panel * 2f) * 0.36f, -(h - panel * 2f) * 0.36f })
+                DecayKit.Part(hinge.transform, "Strap", PrimitiveType.Cube,
+                    new Vector3(0.045f, hy, 0.022f), new Vector3(0f, 0f, hy < 0f ? -6f : 0f),
+                    new Vector3(0.10f, 0.055f, 0.016f), iron, collide: false, immobile: false);
+
+            // The handle: a backplate, a lever on a spindle, and — where it locks — a hasp and a
+            // padlock hanging off it. A locked container should look locked before you try it.
+            float hx = w - panel * 2.3f;
+            DecayKit.Part(hinge.transform, "Handle_Plate", PrimitiveType.Cube,
+                new Vector3(hx, 0f, 0.026f), Vector3.zero,
+                new Vector3(0.06f, 0.10f, 0.012f), iron, collide: false, immobile: false);
+            DecayKit.Part(hinge.transform, "Handle_Lever", PrimitiveType.Cube,
+                new Vector3(hx - 0.028f, -0.035f, 0.05f), new Vector3(0f, 0f, 28f),
+                new Vector3(0.115f, 0.024f, 0.022f), iron, collide: false, immobile: false);
+
+            if (locked)
+            {
+                DecayKit.Part(hinge.transform, "Hasp", PrimitiveType.Cube,
+                    new Vector3(hx + 0.02f, 0.075f, 0.032f), new Vector3(0f, 0f, -4f),
+                    new Vector3(0.085f, 0.03f, 0.012f), iron, collide: false, immobile: false);
+                DecayKit.Part(hinge.transform, "Padlock_Body", PrimitiveType.Cube,
+                    new Vector3(hx + 0.02f, 0.028f, 0.042f), new Vector3(0f, 0f, (float)(rng.NextDouble() * 16.0 - 8.0)),
+                    new Vector3(0.05f, 0.062f, 0.022f), iron, collide: false, immobile: false);
+                DecayKit.Part(hinge.transform, "Padlock_Shackle", PrimitiveType.Cylinder,
+                    new Vector3(hx + 0.02f, 0.068f, 0.042f), new Vector3(90f, 0f, 0f),
+                    new Vector3(0.013f, 0.026f, 0.013f), iron, collide: false, immobile: false);
+            }
+
+            // Webs on the carcass, not the door — the door moves, and a web that swings with it
+            // gives the whole trick away.
+            DecayKit.WebBox(root.transform, new Vector3(w / 2f, 0f, d / 2f), h, name.GetHashCode(),
+                h > 1.2f ? 3 : 2);
 
             var contents = new GameObject("Contents");
             contents.transform.SetParent(root.transform, false);
@@ -500,10 +651,14 @@ namespace LastWard.EditorTools
             // silently found nothing and every key kept the guessed height it came in with.
             Physics.SyncTransforms();
 
-            // Started only just above the intended spot, and kept short. Casting from 3m up meant
-            // starting ABOVE the 3m room ceiling, so the ray hit the ceiling slab from above and
-            // every key was neatly placed on the roof of the building.
-            if (Physics.Raycast(position + Vector3.up * 0.4f, Vector3.down, out var hit, 2.5f,
+            // Casting from 3m up meant starting ABOVE the 3m room ceiling, so the ray hit the
+            // ceiling slab from above and every key was placed on the roof of the building. But
+            // 0.4m was then too low to clear a bed (0.60) or a desk (0.78): the ray started INSIDE
+            // the furniture, missed its top surface entirely and landed the note on the floor
+            // underneath it — where ClearCirculation saw a note buried under a bed and deleted the
+            // bed. 1.15m clears every worktop in the building and still starts well below the
+            // lowest ceiling.
+            if (Physics.Raycast(position + Vector3.up * 1.15f, Vector3.down, out var hit, 3.2f,
                     ~0, QueryTriggerInteraction.Ignore))
                 return new Vector3(position.x, hit.point.y + restOffset, position.z);
 
@@ -734,6 +889,59 @@ namespace LastWard.EditorTools
         /// </summary>
         private static void BuildPlayerBody(GameObject root)
         {
+            // The two animated characters first. The old gltf variants had no avatar and no clips, so
+            // every remote player was a T-posing statue sliding down the corridor — which reads as a
+            // bug rather than a person, and matters far more now the torch is metered and a teammate
+            // is often the only thing you can actually see.
+            var rigs = new[]
+            {
+                ("Characters/PlayerA/rig.fbx", "Characters/PlayerA/", "AC_PlayerA"),
+                ("Characters/PlayerB/rig.fbx", "Characters/PlayerB/", "AC_PlayerB"),
+            };
+
+            var holder0 = new GameObject("Body");
+            holder0.transform.SetParent(root.transform, false);
+            var animated = new System.Collections.Generic.List<GameObject>();
+
+            for (int i = 0; i < rigs.Length; i++)
+            {
+                var (rigPath, folder, ctrl) = rigs[i];
+                var rigModel = ArtKit.LoadModel(rigPath);
+                if (rigModel == null) continue;
+
+                var inst = ArtKit.Spawn(rigModel, holder0.transform, $"Body_{i}");
+                ArtKit.AutoTexture(inst, folder + "textures", alphaClip: false, pointFilter: false);
+                ArtKit.FitHeight(inst, 1.75f);
+                if (ArtKit.TryGetBounds(inst, out var rb))
+                    inst.transform.position += root.transform.position -
+                        new Vector3(rb.center.x, rb.min.y, rb.center.z);
+
+                string anim = folder + "Animations/";
+                ArtKit.SetupPlayerAnimator(inst, rigPath,
+                    anim + "Idle.fbx", anim + "Walking.fbx", anim + "Running.fbx",
+                    anim + "Crouching Idle.fbx", anim + "Crouch Walk.fbx", ctrl);
+
+                var drv = inst.AddComponent<PlayerAnimationDriver>();
+                SetRef(drv, "animator", inst.GetComponentInChildren<Animator>());
+                SetRef(drv, "state", root.GetComponent<PlayerNetworkState>());
+
+                inst.SetActive(false);
+                animated.Add(inst);
+            }
+
+            if (animated.Count > 0)
+            {
+                var bodyComp = root.AddComponent<PlayerBody>();
+                SetRefArray(bodyComp, "variants", animated.ToArray());
+
+                var emotes = root.AddComponent<EmoteController>();
+                SetRef(emotes, "state", root.GetComponent<PlayerNetworkState>());
+
+                Debug.Log($"[Build] Player body: {animated.Count} ANIMATED character variants attached.");
+                return;
+            }
+
+            Debug.LogWarning("[Build] No animated rigs found — falling back to the old static gltf bodies.");
             string[] models =
             {
                 "Characters/Player01/scene.gltf",
@@ -885,6 +1093,74 @@ namespace LastWard.EditorTools
         /// reference and one replicated open/shut state - two independent doors would let a player
         /// open half a gateway.
         /// </summary>
+        /// <summary>
+        /// Turns a door leaf from a painted slab into a door. Same treatment for single and double
+        /// leaves, because they were identically flat.
+        ///
+        /// Everything is added in the hinge's local space and sits proud of the panel by a few
+        /// millimetres, so it swings with the door and never needs its own animation. None of it
+        /// collides: the panel's box already blocks the doorway and its NavMeshObstacle already
+        /// carves, and adding eight more colliders per door would put eight more things in the way
+        /// of every interaction ray fired at the handle.
+        /// </summary>
+        /// <param name="dirX">+1 if the leaf extends in +x from its hinge, -1 if it extends in -x.</param>
+        private static void DressDoorLeaf(Transform hinge, float width, float height, float dirX, int seed)
+        {
+            var rng = new System.Random(seed);
+            var wood = DecayKit.Wood();
+            var iron = DecayKit.Rust();
+            if (wood == null || iron == null) return;
+
+            float free = dirX * (width - 0.11f);      // the closing edge
+            float mid = dirX * width / 2f;
+
+            foreach (float face in new[] { -1f, 1f })
+            {
+                float z = face * 0.068f;
+
+                // Two raised panels, the lower one split where the damp got into it.
+                DecayKit.Part(hinge, "Door_PanelTop", PrimitiveType.Cube,
+                    new Vector3(mid, height * 0.66f, z), Vector3.zero,
+                    new Vector3(width * 0.62f, height * 0.36f, 0.016f), wood, collide: false, immobile: false);
+                DecayKit.Part(hinge, "Door_PanelLow", PrimitiveType.Cube,
+                    new Vector3(mid, height * 0.28f, z), new Vector3(0f, 0f, face * 0.8f),
+                    new Vector3(width * 0.62f, height * 0.22f, 0.016f), wood, collide: false, immobile: false);
+
+                // Lever handle on a backplate, dropped a few degrees on its spindle.
+                DecayKit.Part(hinge, "Door_HandlePlate", PrimitiveType.Cube,
+                    new Vector3(free, height * 0.45f, z + face * 0.012f), Vector3.zero,
+                    new Vector3(0.075f, 0.17f, 0.014f), iron, collide: false, immobile: false);
+                DecayKit.Part(hinge, "Door_Lever", PrimitiveType.Cube,
+                    new Vector3(free - dirX * 0.055f, height * 0.435f, z + face * 0.038f),
+                    new Vector3(0f, 0f, -dirX * 16f),
+                    new Vector3(0.15f, 0.028f, 0.026f), iron, collide: false, immobile: false);
+
+                // Kick plate along the bottom, buckled at one end.
+                DecayKit.Part(hinge, "Door_KickPlate", PrimitiveType.Cube,
+                    new Vector3(mid, 0.16f, z + face * 0.006f), new Vector3(0f, 0f, face * 0.9f),
+                    new Vector3(width * 0.9f, 0.26f, 0.01f), iron, collide: false, immobile: false);
+            }
+
+            // Three butt hinges down the pivot edge. Cheap, and their absence is very noticeable.
+            for (int i = 0; i < 3; i++)
+                DecayKit.Part(hinge, "Door_Hinge", PrimitiveType.Cube,
+                    new Vector3(dirX * 0.05f, height * (0.14f + i * 0.36f), 0f), Vector3.zero,
+                    new Vector3(0.06f, 0.13f, 0.15f), iron, collide: false, immobile: false);
+
+            // Roughly half of them have had their observation window put through. The frame stays;
+            // the glass does not, which means light and sound carry through a shut door.
+            if (rng.Next(2) == 0)
+            {
+                DecayKit.Part(hinge, "Door_WindowFrame", PrimitiveType.Cube,
+                    new Vector3(mid, height * 0.74f, 0f), Vector3.zero,
+                    new Vector3(width * 0.34f, height * 0.16f, 0.135f), iron, collide: false, immobile: false);
+                for (int i = 0; i < 3; i++)   // the wire mesh the glass was set into
+                    DecayKit.Part(hinge, "Door_WindowBar", PrimitiveType.Cube,
+                        new Vector3(mid + (i - 1) * width * 0.1f, height * 0.74f, 0f), Vector3.zero,
+                        new Vector3(0.012f, height * 0.14f, 0.14f), iron, collide: false, immobile: false);
+            }
+        }
+
         public static NetworkedDoor CreateNetworkedDoubleDoor(string name, Vector3 centre,
             float totalWidth = 3f, float height = 3f, bool startLocked = true)
         {
@@ -905,12 +1181,14 @@ namespace LastWard.EditorTools
                 panel.transform.localScale = new Vector3(leafW, height, 0.12f);
                 // Spans back INWARD from its hinge, so the two leaves meet on the centre line.
                 panel.transform.localPosition = new Vector3(-sign * leafW / 2f, height / 2f, 0f);
-                SetMaterial(panel, MakeMaterial(new Color(0.30f, 0.12f, 0.09f)));
+                SetMaterial(panel, DecayKit.Wood() ?? MakeMaterial(new Color(0.30f, 0.12f, 0.09f)));
 
                 var obstacle = panel.AddComponent<NavMeshObstacle>();
                 obstacle.shape = NavMeshObstacleShape.Box;
                 obstacle.size = Vector3.one;
                 obstacle.carving = true;
+
+                DressDoorLeaf(leaf.transform, leafW, height, -sign, (name + leafName).GetHashCode());
                 return leaf.transform;
             }
 
@@ -938,7 +1216,8 @@ namespace LastWard.EditorTools
             panel.transform.SetParent(hinge.transform);
             panel.transform.localScale = new Vector3(width, height, 0.12f);
             panel.transform.localPosition = new Vector3(width / 2f, height / 2f, 0f);
-            SetMaterial(panel, MakeMaterial(new Color(0.32f, 0.1f, 0.08f)));
+            SetMaterial(panel, DecayKit.Wood() ?? MakeMaterial(new Color(0.32f, 0.1f, 0.08f)));
+            DressDoorLeaf(hinge.transform, width, height, 1f, name.GetHashCode());
 
             // Carves the NavMesh only while shut. BakeNavMesh bakes with door colliders disabled so
             // the floor under a doorway is walkable; this obstacle is what actually blocks the
@@ -1417,21 +1696,30 @@ namespace LastWard.EditorTools
         public static Transform CreateNoteProp(string name, Vector3 position, string cluePath, string clueId, string title, string body, float knowledgeValue)
         {
             var clue = AssetDatabase.LoadAssetAtPath<ClueDefinition>(cluePath);
-            if (clue == null)
-            {
-                clue = ScriptableObject.CreateInstance<ClueDefinition>();
-                clue.clueId = clueId;
-                clue.displayTitle = title;
-                clue.bodyText = body;
-                clue.knowledgeValue = knowledgeValue;
-                AssetDatabase.CreateAsset(clue, cluePath);
-                AssetDatabase.SaveAssets();
-            }
+            bool created = clue == null;
+            if (created) clue = ScriptableObject.CreateInstance<ClueDefinition>();
+
+            // Rewritten on EVERY build, not only on creation. These assets used to be write-once, so
+            // editing a note's text in the builder changed nothing — the stale asset from the first
+            // build kept winning. That silently broke the switch to templated notes: the locks would
+            // have taken a fresh code each run while the paperwork still quoted the old fixed one.
+            clue.clueId = clueId;
+            clue.displayTitle = title;
+            clue.bodyText = body;
+            clue.knowledgeValue = knowledgeValue;
+            if (created) AssetDatabase.CreateAsset(clue, cluePath);
+            else EditorUtility.SetDirty(clue);
+            AssetDatabase.SaveAssets();
             // The note is a flat sheet lying face-up, not a slab standing on its edge in mid-air.
             // Callers pass the surface it rests on — a table top, a shelf, the floor — and the sheet
             // is laid a couple of millimetres above it.
             var root = new GameObject(name);
-            root.transform.position = position;
+            // Lay it on whatever is actually there. The authored Y was taken verbatim, so a note
+            // written to sit "beside the bed" at floor height ended up UNDER the bed — and then
+            // ClearCirculation deleted the bed for burying it. Dropping to the surface puts the
+            // sheet on the bed instead, which is both better staging and one less prop destroyed.
+            // Falls back to the authored height when nothing is beneath it.
+            root.transform.position = DropToSurface(position, position.y, 0.006f);
             root.transform.rotation = Quaternion.Euler(0f, (name.GetHashCode() % 90) - 45f, 0f);
 
             // A textured quad, not the imported letter mesh. Those sheets are authored as vertical
@@ -1487,6 +1775,26 @@ namespace LastWard.EditorTools
 
         // --- connection + gameplay UI bundle ---
 
+        /// <summary>
+        /// The EventSystem plus the two menus.
+        ///
+        /// Named CreateConnectionUI for continuity with its callers, but it no longer builds a
+        /// connection panel: host and join moved inside MainMenuUI, two pages deep, so a join-code
+        /// field is not the first thing every player sees on launch. Both menus construct themselves.
+        /// </summary>
+        /// <summary>
+        /// The EventSystem, the shared HUD canvas, and the two menus.
+        ///
+        /// Still named CreateConnectionUI for its callers, but it no longer builds a connection panel:
+        /// host and join moved two pages deep inside MainMenuUI so a join-code field is not the first
+        /// thing every player sees.
+        ///
+        /// <b>The GameObject named "Canvas" is load-bearing.</b> CreateDiscoveryUI and CreateObjectiveUI
+        /// locate it by name at build time, and CreateGameplayUI hangs the crosshair, interaction
+        /// prompt, death screen and keypad off it. Removing it while replacing the menus took the
+        /// entire HUD with it — the game ran with no pointer, no fear meter and no prompts, and the
+        /// only trace was a warning in the build log.
+        /// </summary>
         public static void CreateConnectionUI()
         {
             var esGO = new GameObject("EventSystem");
@@ -1496,42 +1804,83 @@ namespace LastWard.EditorTools
             var canvasGO = new GameObject("Canvas");
             var canvas = canvasGO.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvasGO.AddComponent<CanvasScaler>();
+            LastWard.UI.MenuTheme.ScaleCanvas(canvasGO);
             canvasGO.AddComponent<GraphicRaycaster>();
-
-            var panel = CreateRect("ConnectionPanel", canvasGO.transform, new Vector2(0.5f, 0.5f), new Vector2(420f, 320f), Vector2.zero);
-            panel.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.8f);
-
-            var hostButton = CreateButton("HostButton", panel, "HOST", new Vector2(0f, 100f));
-            var codeInput = CreateInputField("CodeInput", panel, "join code", new Vector2(0f, 20f));
-            var joinButton = CreateButton("JoinButton", panel, "JOIN", new Vector2(0f, -60f));
-            var status = CreateText(panel, "Status", 20f, TextAlignmentOptions.Center);
-            var statusRect = (RectTransform)status.transform;
-            statusRect.anchorMin = new Vector2(0.5f, 0f);
-            statusRect.anchorMax = new Vector2(0.5f, 0f);
-            statusRect.sizeDelta = new Vector2(400f, 60f);
-            statusRect.anchoredPosition = new Vector2(0f, -120f);
-
-            var ui = canvasGO.AddComponent<ConnectionUI>();
-            SetRef(ui, "panel", panel.gameObject);
-            SetRef(ui, "hostButton", hostButton);
-            SetRef(ui, "joinButton", joinButton);
-            SetRef(ui, "codeInput", codeInput);
-            SetRef(ui, "statusText", status);
-
             CreateGameplayUI(canvasGO);
+
+            // Both menus build their own canvases on top of this one.
+            new GameObject("MainMenuUI").AddComponent<LastWard.UI.MainMenuUI>();
+            new GameObject("GameMenuUI").AddComponent<LastWard.UI.GameMenuUI>();
+            // Sorts above both menus. Covers the relay handshake, which is several seconds of
+            // awaits that used to be a black screen with nothing moving on it.
+            new GameObject("LoadingScreen").AddComponent<LastWard.UI.LoadingScreen>();
         }
 
         public static void CreateGameplayUI(GameObject canvasGO)
         {
-            var promptRoot = CreateRect("InteractionPrompt", canvasGO.transform, new Vector2(0.5f, 0.18f), new Vector2(500f, 34f), Vector2.zero);
-            var promptText = CreateText(promptRoot, "PromptText", 18f, TextAlignmentOptions.Center);
-            StretchToParent((RectTransform)promptText.transform);
+            // The interaction prompt: a plate sized to its content, a key cap, and the label. The
+            // plate/cap/label rects are all zero-sized here on purpose — InteractionPromptUI
+            // measures the text and lays them out whenever the prompt changes, so any size set at
+            // build time would only be overwritten on the first frame anything is looked at.
+            var promptRoot = CreateRect("InteractionPrompt", canvasGO.transform, new Vector2(0.5f, 0.16f), new Vector2(0f, 0f), Vector2.zero);
+            var promptGroup = promptRoot.gameObject.AddComponent<CanvasGroup>();
+            promptGroup.interactable = false;
+            promptGroup.blocksRaycasts = false;
+
+            var plate = CreateRect("Plate", promptRoot, new Vector2(0.5f, 0.5f), new Vector2(240f, 48f), Vector2.zero);
+            var plateImage = plate.gameObject.AddComponent<Image>();
+            plateImage.color = new Color(0.02f, 0.02f, 0.025f, 0.72f);
+            plateImage.raycastTarget = false;
+
+            // Hairlines top and bottom, matching the menus. They read as a bar rather than a blob.
+            foreach (float sy in new[] { 0f, 1f })
+            {
+                var rule = CreateRect("Rule", plate, new Vector2(0.5f, sy), new Vector2(0f, 1f), Vector2.zero);
+                rule.anchorMin = new Vector2(0f, sy);
+                rule.anchorMax = new Vector2(1f, sy);
+                rule.offsetMin = new Vector2(0f, sy > 0.5f ? -1f : 0f);
+                rule.offsetMax = new Vector2(0f, sy > 0.5f ? 0f : 1f);
+                var ruleImg = rule.gameObject.AddComponent<Image>();
+                ruleImg.color = MenuTheme.Hairline;
+                ruleImg.raycastTarget = false;
+            }
+
+            // The cap is a border rect with the face inset inside it. uGUI draws children over
+            // their parent regardless of sibling order, so the border has to BE the parent — an
+            // inflated sibling behind the face is the obvious construction and it does not work.
+            var keyCap = CreateRect("KeyCap", plate, new Vector2(0.5f, 0.5f), new Vector2(34f, 34f), Vector2.zero);
+            var capEdgeImg = keyCap.gameObject.AddComponent<Image>();
+            capEdgeImg.color = new Color(0.38f, 0.36f, 0.33f, 0.75f);
+            capEdgeImg.raycastTarget = false;
+
+            var capFace = CreateRect("CapFace", keyCap, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            StretchToParent(capFace);
+            capFace.offsetMin = new Vector2(1.5f, 1.5f);
+            capFace.offsetMax = new Vector2(-1.5f, -1.5f);
+            var keyCapImage = capFace.gameObject.AddComponent<Image>();
+            keyCapImage.color = new Color(0.10f, 0.10f, 0.11f, 0.95f);
+            keyCapImage.raycastTarget = false;
+
+            var keyText = CreateText(capFace, "KeyText", 19f, TextAlignmentOptions.Center);
+            StretchToParent((RectTransform)keyText.transform);
+            keyText.color = new Color(0.93f, 0.90f, 0.85f);
+            keyText.raycastTarget = false;
+
+            var promptText = CreateText(plate, "PromptText", 21f, TextAlignmentOptions.Left);
+            promptText.characterSpacing = 4f;
+            promptText.enableWordWrapping = false;
+            promptText.raycastTarget = false;
             promptRoot.gameObject.SetActive(false);
 
             var promptUI = canvasGO.AddComponent<InteractionPromptUI>();
             SetRef(promptUI, "root", promptRoot.gameObject);
+            SetRef(promptUI, "group", promptGroup);
+            SetRef(promptUI, "plate", plate);
+            SetRef(promptUI, "keyCap", keyCap);
+            SetRef(promptUI, "keyText", keyText);
             SetRef(promptUI, "promptText", promptText);
+            SetRef(promptUI, "plateImage", plateImage);
+            SetRef(promptUI, "keyCapImage", keyCapImage);
 
             CreateCrosshair(canvasGO);
             CreateDeathScreen(canvasGO);
@@ -1674,25 +2023,92 @@ namespace LastWard.EditorTools
 
         public static void CreateKeypadUI(GameObject canvasGO)
         {
-            var panel = CreateRect("KeypadPanel", canvasGO.transform, new Vector2(0.5f, 0.5f), new Vector2(320f, 220f), Vector2.zero);
-            panel.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.85f);
+            // Styled to match the menus rather than uGUI's defaults. The old panel was a grey box
+            // with a white input field and a lavender button — the single most out-of-place thing
+            // on screen in a game whose whole look is near-black and one red.
+            var panel = CreateRect("KeypadPanel", canvasGO.transform, new Vector2(0.5f, 0.5f), new Vector2(400f, 268f), Vector2.zero);
+            panel.gameObject.AddComponent<Image>().color = MenuTheme.Panel;
 
-            var label = CreateText(panel, "Label", 22f, TextAlignmentOptions.Center);
+            // Border, drawn as four hairlines rather than a sprite so it needs no art.
+            foreach (var (aMin, aMax, oMin, oMax) in new[]
+            {
+                (new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -1f), new Vector2(0f, 0f)),
+                (new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 0f), new Vector2(0f, 1f)),
+                (new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(1f, 0f)),
+                (new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-1f, 0f), new Vector2(0f, 0f)),
+            })
+            {
+                var edge = CreateRect("Edge", panel, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+                edge.anchorMin = aMin; edge.anchorMax = aMax;
+                edge.offsetMin = oMin; edge.offsetMax = oMax;
+                var img = edge.gameObject.AddComponent<Image>();
+                img.color = MenuTheme.Hairline;
+                img.raycastTarget = false;
+            }
+
+            var label = CreateText(panel, "Label", 26f, TextAlignmentOptions.Center);
             var labelRect = (RectTransform)label.transform;
             labelRect.anchorMin = new Vector2(0.5f, 1f);
             labelRect.anchorMax = new Vector2(0.5f, 1f);
-            labelRect.sizeDelta = new Vector2(280f, 40f);
-            labelRect.anchoredPosition = new Vector2(0f, -30f);
+            labelRect.sizeDelta = new Vector2(340f, 40f);
+            labelRect.anchoredPosition = new Vector2(0f, -38f);
             label.text = "ENTER CODE";
+            label.color = MenuTheme.Ink;
+            label.characterSpacing = 10f;
+            label.raycastTarget = false;
 
-            var codeInput = CreateInputField("CodeInput", panel, "code", new Vector2(0f, 10f));
-            var submitButton = CreateButton("SubmitButton", panel, "SUBMIT", new Vector2(0f, -60f));
+            var rule = CreateRect("Rule", panel, new Vector2(0.5f, 1f), new Vector2(300f, 1f), new Vector2(0f, -64f));
+            var ruleImg = rule.gameObject.AddComponent<Image>();
+            ruleImg.color = MenuTheme.Hairline;
+            ruleImg.raycastTarget = false;
+
+            var codeInput = CreateInputField("CodeInput", panel, "- - - -", new Vector2(0f, 26f));
+            var fieldImage = codeInput.GetComponent<Image>();
+            fieldImage.color = new Color(0.05f, 0.05f, 0.06f, 0.95f);
+            ((RectTransform)codeInput.transform).sizeDelta = new Vector2(300f, 58f);
+            // Digits, centred and widely tracked — it should read as a readout, not a text box.
+            foreach (var t in codeInput.GetComponentsInChildren<TMP_Text>(true))
+            {
+                t.alignment = TextAlignmentOptions.Center;
+                t.fontSize = 30f;
+                t.characterSpacing = 14f;
+                t.color = t.name == "Placeholder" ? MenuTheme.Dim : MenuTheme.Ink;
+            }
+
+            var status = CreateText(panel, "Status", 17f, TextAlignmentOptions.Center);
+            var statusRect = (RectTransform)status.transform;
+            statusRect.sizeDelta = new Vector2(340f, 24f);
+            statusRect.anchoredPosition = new Vector2(0f, -22f);
+            status.characterSpacing = 8f;
+            status.color = MenuTheme.Accent;
+            status.text = string.Empty;
+            status.raycastTarget = false;
+
+            var submitButton = CreateButton("SubmitButton", panel, "SUBMIT", new Vector2(0f, -78f));
+            var submitRect = (RectTransform)submitButton.transform;
+            submitRect.sizeDelta = new Vector2(300f, 52f);
+            var submitImg = submitButton.GetComponent<Image>();
+            submitImg.color = new Color(0.07f, 0.07f, 0.08f, 0.95f);
+            var colours = submitButton.colors;
+            colours.normalColor = Color.white;
+            colours.highlightedColor = new Color(1.7f, 1.1f, 1.05f);   // the one red, on hover
+            colours.pressedColor = new Color(0.6f, 0.6f, 0.6f);
+            submitButton.colors = colours;
+            foreach (var t in submitButton.GetComponentsInChildren<TMP_Text>(true))
+            {
+                t.fontSize = 22f;
+                t.characterSpacing = 10f;
+                t.color = MenuTheme.Ink;
+            }
+
             panel.gameObject.SetActive(false);
 
             var keypadUI = canvasGO.AddComponent<KeypadUI>();
             SetRef(keypadUI, "root", panel.gameObject);
             SetRef(keypadUI, "codeInput", codeInput);
             SetRef(keypadUI, "submitButton", submitButton);
+            SetRef(keypadUI, "statusText", status);
+            SetRef(keypadUI, "fieldImage", fieldImage);
         }
 
         // --- low-level helpers ---

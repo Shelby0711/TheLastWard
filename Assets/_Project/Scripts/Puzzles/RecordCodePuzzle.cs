@@ -30,7 +30,19 @@ namespace LastWard.Puzzles
         {
             if (solved.Value) return;
             GameEvents.RaiseNoiseEmitted(transform.position, noiseRadius, NoiseSource.PuzzleInteraction);
-            if (code != correctCode) return;
+            if (code != correctCode)
+            {
+                // Answered to the submitter only. A wrong code used to be indistinguishable from a
+                // dropped keypress, so players could not tell the pad had rejected them at all.
+                WrongCodeClientRpc(new ClientRpcParams
+                {
+                    Send = new ClientRpcSendParams
+                    {
+                        TargetClientIds = new[] { rpcParams.Receive.SenderClientId }
+                    }
+                });
+                return;
+            }
 
             solved.Value = true;
             ulong solverId = rpcParams.Receive.SenderClientId;
@@ -38,5 +50,9 @@ namespace LastWard.Puzzles
             GameEvents.RaisePuzzleStepCompleted("p2_record_code", solverId);
             KnowledgeService.Instance?.AddScore(solverId, knowledgeOnComplete);
         }
+
+        [ClientRpc]
+        private void WrongCodeClientRpc(ClientRpcParams p = default) =>
+            LastWard.UI.KeypadUI.Instance?.ShowWrong();
     }
 }

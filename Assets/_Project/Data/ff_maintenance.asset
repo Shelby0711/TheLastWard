@@ -15,8 +15,8 @@ MonoBehaviour:
   clueId: ff_maintenance
   displayTitle: Maintenance Card
   bodyText: Pad reads left to right in the order the register lists them, not lowest
-    first. Anyone entering them in numerical order will lock themselves out and I
-    am not coming up here again to reset it.
+    first. Anyone entering {BEDS_SORTED} will lock themselves out and I am not coming
+    up here again to reset it.
   knowledgeValue: 4
   spawnPointPoolId: 
   puzzleId: 

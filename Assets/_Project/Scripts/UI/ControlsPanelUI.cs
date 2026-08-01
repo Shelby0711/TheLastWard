@@ -36,6 +36,7 @@ namespace LastWard.UI
             "<b>Q / E</b>        While dead: switch who you're watching\n" +
             "<b>Left Mouse</b>   While dead: ping for the living\n\n" +
             "<b>R</b>            Skip the wait after a run ends\n" +
+            "<b>F1 / F2 / F4</b> Emote  <i>— quiet, but not silent</i>\n" +
             "<b>Tab</b>          Switch to the Inventory tab  <i>— drop anything from there</i>\n" +
             "<b>F3</b>           Close this";
 

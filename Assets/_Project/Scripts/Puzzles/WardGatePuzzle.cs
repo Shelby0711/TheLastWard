@@ -25,8 +25,12 @@ namespace LastWard.Puzzles
     public class WardGatePuzzle : NetworkBehaviour
     {
         [SerializeField] private Transform gateLeaf;
-        [SerializeField] private Renderer generatorLamp;
+        // Two faces of the generator housing, so the state is legible whether you come up off the
+        // stairs or walk past it. One buried 7cm dot was not an indicator on a floor this dark.
+        [SerializeField] private Renderer[] generatorLamps;
+        [SerializeField] private Light generatorGlow;
         [SerializeField] private Renderer keypadScreen;
+        [SerializeField] private Light keypadGlow;
         [SerializeField] private Transform lever;
         [SerializeField] private string code = "1974";
         [SerializeField] private float knowledgeOnComplete = 6f;
@@ -68,12 +72,28 @@ namespace LastWard.Puzzles
                 slideSpeed * Time.deltaTime);
         }
 
-        /// <summary>Red until the generator runs, then green — the one legible sign the floor is live.</summary>
+        private static readonly Color Red = new Color(0.95f, 0.1f, 0.08f);
+        private static readonly Color Green = new Color(0.1f, 0.9f, 0.3f);
+        private static readonly Color Dead = new Color(0.05f, 0.05f, 0.05f);
+
+        /// <summary>
+        /// Red until the generator runs, and red again on the pad until the code is accepted.
+        ///
+        /// The pad used to sit on a dim green while locked and a bright green once open — two greens,
+        /// which is no signal at all: you could not tell by looking whether you had solved it. Locked
+        /// is now unambiguously red, so green means exactly one thing on this floor.
+        /// </summary>
         private void Refresh()
         {
-            Tint(generatorLamp, powered.Value ? new Color(0.1f, 0.9f, 0.2f) : new Color(0.9f, 0.1f, 0.1f));
-            Tint(keypadScreen, !powered.Value ? new Color(0.05f, 0.05f, 0.05f)
-                : unlocked.Value ? new Color(0.1f, 0.9f, 0.3f) : new Color(0.15f, 0.55f, 0.2f));
+            Color gen = powered.Value ? Green : Red;
+            if (generatorLamps != null)
+                foreach (var r in generatorLamps) Tint(r, gen);
+            SetGlow(generatorGlow, gen, powered.Value ? 1.3f : 1.1f);
+
+            Color pad = !powered.Value ? Dead : unlocked.Value ? Green : Red;
+            Tint(keypadScreen, pad);
+            SetGlow(keypadGlow, pad, powered.Value ? 0.9f : 0.15f);
+
             if (lever != null)
                 lever.localRotation = Quaternion.Euler(powered.Value ? -55f : 55f, 0f, 0f);
         }
@@ -86,6 +106,15 @@ namespace LastWard.Puzzles
             mpb.SetColor(BaseColorId, c * 0.4f);
             mpb.SetColor(EmissionColorId, c);
             r.SetPropertyBlock(mpb);
+        }
+
+        // Emissive material on its own reads as flat dark paint under a 0.14 ambient. The lamp only
+        // actually looks lit because something is casting from it.
+        private static void SetGlow(Light l, Color c, float intensity)
+        {
+            if (l == null) return;
+            l.color = c;
+            l.intensity = intensity;
         }
 
         // ---- step 1: the generator ----
@@ -105,12 +134,55 @@ namespace LastWard.Puzzles
         {
             if (!powered.Value || unlocked.Value) return;
             GameEvents.RaiseNoiseEmitted(transform.position, 10f, NoiseSource.PuzzleInteraction);
-            if (entered != code) return;
+            // The run's code, not the one baked into the prefab.
+            if (entered != RunCodes.Gate)
+            {
+                // A rejected code used to do nothing visible or audible at all — the pad stayed the
+                // same green and the panel just closed, so there was no way to tell a wrong entry
+                // from an unregistered keypress. It now buzzes and flashes, and the buzz is loud
+                // enough to be worth being sure before you try: the same bargain the corridor locks
+                // downstairs make, and the same clip.
+                WrongCodeClientRpc();
+                GameEvents.RaiseNoiseEmitted(transform.position, 18f, NoiseSource.PuzzleInteraction);
+                return;
+            }
 
             unlocked.Value = true;
             ulong who = p.Receive.SenderClientId;
             GameEvents.RaisePuzzleStepCompleted("ff_gate_code", who);
             LastWard.Knowledge.KnowledgeService.Instance?.AddScore(who, knowledgeOnComplete);
+        }
+
+        [ClientRpc]
+        private void GateSlideClientRpc()
+        {
+            // Positional, and long: the gate takes seconds to travel and the sound should still be
+            // running when it stops. Everyone on the floor hears where it happened.
+            var clip = LastWard.Audio.GameSfx.HallwayGate;
+            if (clip != null) AudioSource.PlayClipAtPoint(clip, transform.position, 1f);
+        }
+
+        [ClientRpc]
+        private void WrongCodeClientRpc()
+        {
+            var bang = LastWard.Audio.GameSfx.Random(LastWard.Audio.GameSfx.WrongAttempt);
+            if (bang != null) AudioSource.PlayClipAtPoint(bang, transform.position, 1f);
+            StopAllCoroutines();
+            StartCoroutine(FlashWrong());
+        }
+
+        private System.Collections.IEnumerator FlashWrong()
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                Tint(keypadScreen, Dead);
+                SetGlow(keypadGlow, Red, 0.1f);
+                yield return new WaitForSeconds(0.09f);
+                Tint(keypadScreen, Red);
+                SetGlow(keypadGlow, Red, 2.2f);
+                yield return new WaitForSeconds(0.12f);
+            }
+            Refresh();
         }
 
         // ---- step 3: the crowbar ----
@@ -122,76 +194,8 @@ namespace LastWard.Puzzles
             opened.Value = true;
             // Hauling a rusted gate aside is the loudest thing on this floor.
             GameEvents.RaiseNoiseEmitted(transform.position, 22f, NoiseSource.PuzzleInteraction);
+            GateSlideClientRpc();
         }
     }
 
-    /// <summary>The generator by the stairs: takes the heavy cell, then the lever.</summary>
-    public class GeneratorInteractable : MonoBehaviour, IInteractable
-    {
-        [SerializeField] private WardGatePuzzle puzzle;
-
-        public string GetPrompt()
-        {
-            if (puzzle == null) return null;
-            if (puzzle.IsPowered) return "Generator — running";
-            return PlayerInventory.Local != null && PlayerInventory.Local.HasItem("cell")
-                ? "Fit the cell and throw the lever"
-                : "Generator — dead (needs a heavy cell)";
-        }
-
-        public bool CanInteract(ulong playerId) =>
-            puzzle != null && !puzzle.IsPowered &&
-            PlayerInventory.Local != null && PlayerInventory.Local.HasItem("cell");
-
-        public void Interact(ulong playerId)
-        {
-            PlayerInventory.Local.RemoveItem("cell");
-            puzzle.PowerOnServerRpc();
-        }
-    }
-
-    /// <summary>The pad beside the gate. Dark until the generator runs.</summary>
-    public class GateKeypadInteractable : MonoBehaviour, IInteractable
-    {
-        [SerializeField] private WardGatePuzzle puzzle;
-
-        public string GetPrompt()
-        {
-            if (puzzle == null) return null;
-            if (!puzzle.IsPowered) return "Keypad — no power";
-            return puzzle.IsUnlocked ? "Keypad — accepted" : "Enter code";
-        }
-
-        public bool CanInteract(ulong playerId) =>
-            puzzle != null && puzzle.IsPowered && !puzzle.IsUnlocked;
-
-        public void Interact(ulong playerId) =>
-            LastWard.UI.KeypadUI.Instance?.Open(entered => puzzle.SubmitCodeServerRpc(entered));
-    }
-
-    /// <summary>The gate itself: needs the crowbar once the lock has released.</summary>
-    public class GateBarInteractable : MonoBehaviour, IInteractable
-    {
-        [SerializeField] private WardGatePuzzle puzzle;
-
-        public string GetPrompt()
-        {
-            if (puzzle == null || puzzle.IsOpen) return null;
-            if (!puzzle.IsPowered) return "Gate — the lock is dead";
-            if (!puzzle.IsUnlocked) return "Gate — still locked";
-            return PlayerInventory.Local != null && PlayerInventory.Local.HasItem("crowbar")
-                ? "Lever the gate open"
-                : "Gate — rusted solid (needs a crowbar)";
-        }
-
-        public bool CanInteract(ulong playerId) =>
-            puzzle != null && puzzle.IsUnlocked && !puzzle.IsOpen &&
-            PlayerInventory.Local != null && PlayerInventory.Local.HasItem("crowbar");
-
-        public void Interact(ulong playerId)
-        {
-            PlayerInventory.Local?.RegisterUse("crowbar");
-            puzzle.ForceOpenServerRpc();
-        }
-    }
 }

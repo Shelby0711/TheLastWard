@@ -32,7 +32,7 @@ namespace LastWard.Entity
         [SerializeField] private float perceptionRange = 34f;
         [Tooltip("Corridor extent it patrols, and the floor height it walks on.")]
         [SerializeField] private float roamMinZ = 61f;
-        [SerializeField] private float roamMaxZ = 86f;
+        [SerializeField] private float roamMaxZ = 111f;
         [SerializeField] private float floorY = 3.2f;
 
         [Header("Light — its sense")]
@@ -67,10 +67,16 @@ namespace LastWard.Entity
         [SerializeField] private float hiddenDrain = 0.20f;
 
         [Header("Endgame")]
-        [Tooltip("Past this Z it is guarding the way up and stops being patient — everything it " +
-            "senses counts for more, the same way the Receptionist hardens at the corridor exit.")]
-        [SerializeField] private float endgameFromZ = 78f;
-        [SerializeField] private float endgameMultiplier = 2.2f;
+        [Tooltip("Where the floor starts getting worse. Everything it senses is multiplied on a " +
+            "ramp from here to endgameToZ rather than flipping at a line, so pushing north feels like " +
+            "steadily running out of room instead of crossing a tripwire.")]
+        [SerializeField] private float endgameFromZ = 72f;
+        [Tooltip("The far end of the wing, where it is at full strength.")]
+        [SerializeField] private float endgameToZ = 110f;
+        [Tooltip("Sense multiplier at the far end. The night book is meant to be frightening to reach.")]
+        [SerializeField] private float endgameMultiplier = 3.2f;
+        [Tooltip("At full aggression it prowls and climbs this much more often.")]
+        [SerializeField] private float endgameTempo = 0.45f;
         [Tooltip("Logs the meter while your torch is on it, so a stalled meter can be told apart from " +
             "stalled senses at a glance.")]
         [SerializeField] private bool debugMeter;
@@ -89,6 +95,10 @@ namespace LastWard.Entity
         [SerializeField] private float liftSeconds = 4.5f;
         [Tooltip("Stare it down this long on a full meter and it takes you regardless.")]
         [SerializeField] private float patience = 1.2f;
+        [Tooltip("Seconds of immunity after entering its perception range. Arriving on a floor " +
+            "already at a full meter must be survivable — long enough to kill the torch and stop " +
+            "moving, short enough that it is not a free crossing.")]
+        [SerializeField] private float arrivalGrace = 3f;
         [Tooltip("Full meter and already this close? No staging — it is in reach, it simply takes you.")]
         [SerializeField] private float reachDistance = 4.5f;
         [SerializeField] private float stunSeconds = 5f;
@@ -98,6 +108,12 @@ namespace LastWard.Entity
         private readonly NetworkVariable<bool> hidden = new NetworkVariable<bool>(false);
 
         private static readonly int TIdle = Animator.StringToHash("Idle");
+        private float busySince;
+        [Tooltip("Seconds after which a stuck busy flag is force-cleared. Longer than the longest " +
+            "routine (perch tops out around 20s) and short enough that a wedged Manager recovers " +
+            "inside one encounter.")]
+        [SerializeField] private float busyTimeout = 30f;
+
         private static readonly int TWalk = Animator.StringToHash("Walk");
         private static readonly int TCrawl = Animator.StringToHash("Crawl");
         private static readonly int TCrawlBack = Animator.StringToHash("CrawlBack");
@@ -126,6 +142,12 @@ namespace LastWard.Entity
         // while still letting a full meter interrupt perching or slipping.
         private bool killing;
         private float stunnedUntil, fullSince = -1f;
+        // How long each player has been within this Manager's reach, and how long their meter has
+        // been full while it could actually sense them. Both are per-player: `fullSince` alone was
+        // one shared field, so a meter that filled on the first floor left it set, and returning to
+        // the floor later satisfied "full for longer than `patience`" on the very first frame back.
+        private readonly Dictionary<Transform, float> inRangeSince = new Dictionary<Transform, float>();
+        private readonly Dictionary<Transform, float> fullSincePlayer = new Dictionary<Transform, float>();
         private Vector3 roamTarget;
         private readonly Dictionary<Transform, float> moveTime = new Dictionary<Transform, float>();
         private readonly Dictionary<Transform, Vector3> lastPos = new Dictionary<Transform, Vector3>();
@@ -218,7 +240,7 @@ namespace LastWard.Entity
                 if (p == null || Vector3.Distance(p.position, position) > 2.5f) continue;
                 if (!p.TryGetComponent<PlayerNetworkState>(out var pns) || !pns.IsAlive) continue;
                 if (pns.IsHoldingBreath) continue;      // whatever that was, it was not you
-                float mult = p.position.z >= endgameFromZ ? endgameMultiplier : 1f;
+                float mult = Aggression(p.position.z) * LastWard.Core.PartyScale.Danger;
                 pns.ServerSetDiscovery(pns.Discovery + 0.2f * noiseSensitivity * mult);
             }
         }
@@ -243,6 +265,19 @@ namespace LastWard.Entity
             // or slipping — which is most of the time — nobody's meter moved at all and it could
             // never reach the threshold that kills. Being busy should stop it ACTING, not stop it
             // watching; a thing that only sees you while idle is not a stalker.
+            // WATCHDOG. busy is set before a coroutine and cleared at its end -- but StopAllCoroutines
+            // in the kill path destroys perch/slip mid-flight, so the clearing line never runs and the
+            // flag stays true forever. From then on `acting` is false and the Manager never perches,
+            // never slips, never roams: it just stands in the corridor. This is the fourth separate
+            // instance of that same bug, so it is now caught by class rather than by case.
+            if (busy && Time.time - busySince > busyTimeout)
+            {
+                Debug.LogWarning($"[Manager] busy stuck for {Time.time - busySince:0.0}s - forcing clear. " +
+                                 "A coroutine was interrupted before it could release it.");
+                busy = false;
+                killing = false;
+                netState.Value = ManagerState.Roam;
+            }
             bool acting = !busy && Time.time >= stunnedUntil;
 
             Transform watcher = null;
@@ -257,7 +292,17 @@ namespace LastWard.Entity
                 anyUpstairs = true;
 
                 float dist = Vector3.Distance(p.position, transform.position);
-                if (dist > perceptionRange) continue;
+                if (dist > perceptionRange)
+                {
+                    // Out of range is not "paused" — it is not being hunted. Forget the player
+                    // entirely so re-entering starts a fresh acquisition; PlayerNetworkState's
+                    // unclaimed decay brings their meter down in the meantime.
+                    inRangeSince.Remove(p);
+                    fullSincePlayer.Remove(p);
+                    lastPos.Remove(p);
+                    continue;
+                }
+                if (!inRangeSince.ContainsKey(p)) inRangeSince[p] = Time.time;
 
                 bool lit = false, gazed = false;
                 var pivot = pns.CameraPivot;
@@ -274,7 +319,10 @@ namespace LastWard.Entity
 
                 // Nearer the second-floor stairs it is guarding the way up, and everything it
                 // senses counts for more — the Manager's version of the corridor hardening.
-                float aggression = p.position.z >= endgameFromZ ? endgameMultiplier : 1f;
+                // Party scaling multiplies the ramp rather than being applied separately, so a
+                // solo player gets the same 30% reprieve everywhere on the floor instead of only
+                // where the endgame ramp happens to be shallow.
+                float aggression = Aggression(p.position.z) * LastWard.Core.PartyScale.Danger;
 
                 // The meter tracks WHAT YOU DO, not what it happens to be able to see. Gating all of
                 // this behind line of sight was the mistake: it hides constantly, so the meter tracked
@@ -307,6 +355,14 @@ namespace LastWard.Entity
                 }
                 if (gazed && !lit) delta += gazeFill;
 
+                // Candlelight. It is not a beacon you carry, so it never charges torchOnFill — but
+                // standing in the pool is being lit, and that has to cost the same as sweeping a torch
+                // or "safe to be near, fatal to stand in" is only a sentence in a design document.
+                // Scaled by how deep into the pool you are, so the edge of the light is a real place
+                // to stand rather than a cliff.
+                float inCandle = LastWard.Core.WorldLight.LitAmount(p.position);
+                if (inCandle > 0f && !concealed) delta += litFill * inCandle;
+
                 // --- SOUND: weaker than light, but no longer negligible. Running is a real decision.
                 if (!silent && !concealed && moving && held > sustainedMoveGrace)
                     delta += (running ? runFill : walkFill) * (pns.IsCrouching ? 0.45f : 1f);
@@ -332,8 +388,16 @@ namespace LastWard.Entity
 
                 if (pns.Discovery >= 0.999f)
                 {
-                    if (fullSince < 0f) fullSince = Time.time;
+                    if (!fullSincePlayer.ContainsKey(p)) fullSincePlayer[p] = Time.time;
+                    fullSince = fullSincePlayer[p];
                     bool inReach = dist <= reachDistance;
+
+                    // Walking into its range already at full must never be an instant kill. That is
+                    // the shape of every "I died to nothing the moment I reached the floor" report:
+                    // the meter was pinned from somewhere else, and the first frame in range was
+                    // also the last. The grace is short enough that it is not a free pass — turn
+                    // the torch off and stand still and the meter is falling before it expires.
+                    if (Time.time - inRangeSince[p] < arrivalGrace) continue;
                     // Three ways in. Requiring "unseen" alone was a deadlock: looking is what fills
                     // the meter, so staring at it made the kill impossible.
                     if (!killing && (!gazed || inReach || Time.time - fullSince >= patience))
@@ -343,22 +407,29 @@ namespace LastWard.Entity
                         // never a kill already in progress, hence the `killing` guard above.
                         StopAllCoroutines();
                         killing = true;
-                        busy = true;
+                        busy = true; busySince = Time.time;
                         StartCoroutine(Manifest(p, pns, inReach || gazed));
                         return;
                     }
                 }
+                else fullSincePlayer.Remove(p);
 
                 if (gazed && dist < watcherDist) { watcher = p; watcherDist = dist; }
             }
 
-            if (!anyUpstairs) { fullSince = -1f; return; }
+            if (!anyUpstairs)
+            {
+                fullSince = -1f;
+                inRangeSince.Clear();
+                fullSincePlayer.Clear();
+                return;
+            }
             if (!acting) return;                 // busy or stunned: it watched, but it does not move
 
             // Caught looking: slip sideways out of the corridor rather than standing there.
             if (watcher != null && watcherDist < slipTriggerRange && netState.Value != ManagerState.Slip)
             {
-                busy = true;
+                busy = true; busySince = Time.time;
                 StartCoroutine(SlipAside(watcher));
                 return;
             }
@@ -366,7 +437,7 @@ namespace LastWard.Entity
             // Otherwise it is ALWAYS doing something. Roaming is the default, not a fallback.
             if (Time.time >= nextPerch && !hidden.Value)
             {
-                busy = true;
+                busy = true; busySince = Time.time;
                 StartCoroutine(PerchInCorner());
                 return;
             }
@@ -394,7 +465,8 @@ namespace LastWard.Entity
                 { dir = transform.position - p.position; dir.y = 0f; break; }
             if (dir.sqrMagnitude < 0.01f) return;
 
-            Vector3 step = dir.normalized * roamSpeed * Time.deltaTime;
+            // Prowls faster the deeper they have gone.
+            Vector3 step = dir.normalized * roamSpeed * (1f + endgameTempo * Pressure()) * Time.deltaTime;
             Vector3 next = transform.position + step;
             next.z = Mathf.Clamp(next.z, roamMinZ, roamMaxZ);
             next.x = Mathf.Clamp(next.x, -1.1f, 1.1f);
@@ -403,6 +475,24 @@ namespace LastWard.Entity
             transform.rotation = Quaternion.Slerp(transform.rotation,
                 Quaternion.LookRotation(dir.normalized), Time.deltaTime * 3f);
             Play(TWalk, 1.4f);
+        }
+
+        /// <summary>
+        /// 1 at the stairs, rising smoothly to endgameMultiplier at the top of the wing. The deeper
+        /// they push, the less forgiving every torch flick and every footstep becomes.
+        /// </summary>
+        private float Aggression(float z) =>
+            Mathf.Lerp(1f, endgameMultiplier,
+                Mathf.Clamp01(Mathf.InverseLerp(endgameFromZ, endgameToZ, z)));
+
+        /// <summary>How deep the furthest living player upstairs has pushed, as 0..1.</summary>
+        private float Pressure()
+        {
+            float peak = 1f;
+            foreach (var t in players)
+                if (t != null && t.position.y >= firstFloorMinY)
+                    peak = Mathf.Max(peak, Aggression(t.position.z));
+            return Mathf.Clamp01((peak - 1f) / Mathf.Max(0.01f, endgameMultiplier - 1f));
         }
 
         private Vector3 PickRoamPoint() =>
@@ -433,7 +523,7 @@ namespace LastWard.Entity
             // Reappears somewhere else entirely, which is the point of vanishing at all.
             Vector3 spot = PickRoamPoint();
             transform.position = spot;
-            if (netTransform != null) netTransform.Teleport(spot, transform.rotation, transform.localScale);
+            netTransform.SafeTeleport(this, spot, transform.rotation, transform.localScale);
             hidden.Value = false;
             // Deliberately NOT rescheduling the perch here. Slipping happens every time a player
             // looks at it, and each slip used to push the ceiling perch another 14-26s away — so on
@@ -472,7 +562,9 @@ namespace LastWard.Entity
                 yield return null;
             }
 
-            nextPerch = Time.time + Random.Range(12f, 22f);
+            // Deep in the wing it is back on the ceiling far sooner, so there are fewer stretches of
+            // hallway where you can be confident it is not above you.
+            nextPerch = Time.time + Random.Range(12f, 22f) * Mathf.Lerp(1f, 0.45f, Pressure());
             busy = false;
         }
 
@@ -489,7 +581,7 @@ namespace LastWard.Entity
                 Vector3 spot = victim.position + fwd.normalized * manifestDistance;
                 spot.y = victim.position.y;
                 transform.position = spot;
-                if (netTransform != null) netTransform.Teleport(spot, transform.rotation, transform.localScale);
+                netTransform.SafeTeleport(this, spot, transform.rotation, transform.localScale);
             }
             Vector3 face = victim.position - transform.position; face.y = 0f;
             if (face.sqrMagnitude > 0.01f) transform.rotation = Quaternion.LookRotation(face.normalized);
@@ -510,7 +602,7 @@ namespace LastWard.Entity
 
             Vector3 away = PickRoamPoint();
             transform.position = away;
-            if (netTransform != null) netTransform.Teleport(away, transform.rotation, transform.localScale);
+            netTransform.SafeTeleport(this, away, transform.rotation, transform.localScale);
             netState.Value = ManagerState.Roam;
             killing = false;
             busy = false;
@@ -518,6 +610,10 @@ namespace LastWard.Entity
 
         private void Play(int trigger, float minGap = 0.35f)
         {
+            // Nothing interrupts a kill. Idle/Walk/Crawl kept arriving mid-death-scene and each one
+            // re-entered the state machine through its AnyState transition, which is why the killing
+            // animation restarted several times over one death.
+            if (killing && System.Array.IndexOf(TKills, trigger) < 0) return;
             if (Time.time - lastAnim < minGap) return;
             lastAnim = Time.time;
             PlayClientRpc(trigger);

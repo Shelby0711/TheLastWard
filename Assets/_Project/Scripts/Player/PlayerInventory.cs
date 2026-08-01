@@ -59,9 +59,9 @@ namespace LastWard.Player
         /// </summary>
         public string DropSelected()
         {
-            // Falls back to the first occupied slot. Only slots 0 and 1 are selectable by key, but
-            // there are eight of them — without this, anything that landed in a later slot could
-            // never be dropped at all and would silently block pickups for the rest of the run.
+            // Whatever the inventory panel last selected. Falls through to the first occupied slot
+            // only when that one is genuinely empty, so an explicit choice is always honoured while
+            // G still works before you have opened the panel at all.
             int index = SelectedSlot;
             if (string.IsNullOrEmpty(slots[index]))
             {
@@ -218,6 +218,13 @@ namespace LastWard.Player
             Vector3 at = transform.position + transform.forward * 0.7f + Vector3.up * 0.15f;
             var net = GetComponent<LastWard.Net.PlayerNetworkState>();
             if (net != null) net.RequestDrop(id, at);
+        }
+
+        /// <summary>Points G at a specific slot. Called by the inventory panel's row buttons.</summary>
+        public void SelectSlotIndex(int index)
+        {
+            if (index < 0 || index >= SlotCount) return;
+            SelectSlot(index);
         }
 
         private void OnSlot1() => SelectSlot(0);

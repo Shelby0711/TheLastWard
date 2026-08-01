@@ -14,8 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
   clueId: lore_reception
   displayTitle: Staff Notice - Front Desk
-  bodyText: Please stop leaving the reception lamp on overnight. He has asked twice
-    now. He does not need it and the bulbs are coming out of our budget, not yours.
+  bodyText: 'Whoever keeps switching the desk lamp on at night: stop. He has asked
+    twice now and he is embarrassed to ask again. He does not need it and he does
+    not like being reminded of that. Let him work the way he works.'
   knowledgeValue: 2
   spawnPointPoolId: 
   puzzleId: 

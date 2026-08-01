@@ -252,7 +252,7 @@ namespace LastWard.Entity
             if (agent != null && agent.enabled && agent.isOnNavMesh) agent.Warp(position);
             else transform.position = position;
             transform.rotation = rot;
-            if (netTransform != null) netTransform.Teleport(position, rot, transform.localScale);
+            netTransform.SafeTeleport(this, position, rot, transform.localScale);
         }
 
         public override void OnNetworkSpawn()

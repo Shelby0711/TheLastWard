@@ -63,7 +63,12 @@ namespace LastWard.Player
 
             string prompt = current?.GetPrompt();
             LocalHasTarget = !string.IsNullOrEmpty(prompt);
-            InteractionPromptUI.Instance?.SetPrompt(prompt);
+            // Availability drives whether the prompt reads as an offer or a refusal. Hiding spots
+            // are always an offer — they answer Hide, not Interact, so CanInteract is not the
+            // question the prompt is asking.
+            bool usable = current != null &&
+                          (current is HidingSpot || current.CanInteract(LocalPlayerId));
+            InteractionPromptUI.Instance?.SetPrompt(prompt, usable);
             CrosshairUI.Instance?.SetTargeted(current != null);
         }
 

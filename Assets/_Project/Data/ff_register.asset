@@ -14,9 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
   clueId: ff_register
   displayTitle: "Ward Two \u2014 Intake Register"
-  bodyText: Beds are numbered by the year the wing opened, not by the room. Bed three
-    took the March intake. Bed zero was never used - it is where they put the ones
-    who were already gone. Four and seven were the last pair admitted before the
+  bodyText: Beds are numbered by the year the wing opened, not by the room. Bed {BED0}
+    took the March intake. Bed {BED1} was never used - it is where they put the ones
+    who were already gone. {BED2} and {BED3} were the last pair admitted before the
     fire.
   knowledgeValue: 4
   spawnPointPoolId: 

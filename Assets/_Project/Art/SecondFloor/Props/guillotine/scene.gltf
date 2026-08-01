@@ -1,0 +1,409 @@
+{
+  "accessors": [
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 461,
+      "max": [
+        1.1606099605560303,
+        1.5765800476074219,
+        2.3335399627685547
+      ],
+      "min": [
+        -1.1433299779891968,
+        -0.767989993095398,
+        -0.9140400290489197
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 5532,
+      "componentType": 5126,
+      "count": 461,
+      "max": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "min": [
+        -1.0,
+        -1.0,
+        -1.0
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5126,
+      "count": 461,
+      "max": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "min": [
+        -1.0,
+        -1.0,
+        -1.0,
+        -1.0
+      ],
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 461,
+      "max": [
+        1.0,
+        0.8933200240135193
+      ],
+      "min": [
+        0.0,
+        0.0
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "componentType": 5125,
+      "count": 1134,
+      "type": "SCALAR"
+    }
+  ],
+  "asset": {
+    "extras": {
+      "author": "yanix (https://sketchfab.com/yanix)",
+      "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+      "source": "https://sketchfab.com/3d-models/guillotine-74043e64e4384aa8878183e6d3fc301c",
+      "title": "Guillotine"
+    },
+    "generator": "Sketchfab-12.63.0",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 4536,
+      "name": "floatBufferViews",
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 3688,
+      "byteOffset": 4536,
+      "byteStride": 8,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 11064,
+      "byteOffset": 8224,
+      "byteStride": 12,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 7376,
+      "byteOffset": 19288,
+      "byteStride": 16,
+      "name": "floatBufferViews",
+      "target": 34962
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 26664,
+      "uri": "scene.bin"
+    }
+  ],
+  "images": [
+    {
+      "uri": "textures/Material_baseColor.jpeg"
+    },
+    {
+      "uri": "textures/Material_metallicRoughness.png"
+    },
+    {
+      "uri": "textures/Material_normal.png"
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "Material",
+      "normalTexture": {
+        "index": 2,
+        "scale": 0.9041539634146342
+      },
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.9102515243902439,
+          0.9102515243902439,
+          0.9102515243902439,
+          1.0
+        ],
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0.7456173780487805,
+        "metallicRoughnessTexture": {
+          "index": 1
+        },
+        "roughnessFactor": 0.684641768292683
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Cube.000_0",
+      "primitives": [
+        {
+          "attributes": {
+            "NORMAL": 1,
+            "POSITION": 0,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "children": [
+        1
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        2.220446049250313e-16,
+        -1.0,
+        0.0,
+        0.0,
+        1.0,
+        2.220446049250313e-16,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "Sketchfab_model"
+    },
+    {
+      "children": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12
+      ],
+      "name": "Root"
+    },
+    {
+      "children": [
+        3
+      ],
+      "matrix": [
+        -0.44714000000000004,
+        0.8806500000000002,
+        0.15663000000000002,
+        0.0,
+        -0.8834500000000001,
+        -0.40741000000000005,
+        -0.23139,
+        0.0,
+        -0.13996000000000003,
+        -0.24184000000000003,
+        0.9601700000000001,
+        0.0,
+        -1.1568500000000002,
+        -3.2177800000000003,
+        1.87124,
+        1.0
+      ],
+      "name": "Lamp"
+    },
+    {
+      "name": "Lamp"
+    },
+    {
+      "children": [
+        5
+      ],
+      "matrix": [
+        -0.44714000000000004,
+        0.8806500000000002,
+        0.15663000000000002,
+        0.0,
+        -0.8834500000000001,
+        -0.40741000000000005,
+        -0.23139,
+        0.0,
+        -0.13996000000000003,
+        -0.24184000000000003,
+        0.9601700000000001,
+        0.0,
+        1.85081,
+        -2.5198499999999995,
+        0.6939500000000002,
+        1.0
+      ],
+      "name": "Lamp.001"
+    },
+    {
+      "name": "Lamp.001"
+    },
+    {
+      "children": [
+        7
+      ],
+      "matrix": [
+        -0.44714000000000004,
+        0.8806500000000002,
+        0.15663000000000002,
+        0.0,
+        -0.8834500000000001,
+        -0.40741000000000005,
+        -0.23139,
+        0.0,
+        -0.13996000000000003,
+        -0.24184000000000003,
+        0.9601700000000001,
+        0.0,
+        0.25004,
+        2.9056399999999996,
+        1.56717,
+        1.0
+      ],
+      "name": "Lamp.002"
+    },
+    {
+      "name": "Lamp.002"
+    },
+    {
+      "children": [
+        9
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.25462,
+        0.007770000000000002,
+        -0.6921500000000002,
+        1.0
+      ],
+      "name": "Cube.000"
+    },
+    {
+      "mesh": 0,
+      "name": "Cube.000_0"
+    },
+    {
+      "children": [
+        11
+      ],
+      "matrix": [
+        -0.44714000000000004,
+        0.8806500000000002,
+        0.15663000000000002,
+        0.0,
+        -0.8834500000000001,
+        -0.40741000000000005,
+        -0.23139,
+        0.0,
+        -0.13996000000000003,
+        -0.24184000000000003,
+        0.9601700000000001,
+        0.0,
+        1.93458,
+        -0.6537900000000002,
+        3.26067,
+        1.0
+      ],
+      "name": "Lamp.003"
+    },
+    {
+      "name": "Lamp.003"
+    },
+    {
+      "children": [
+        13
+      ],
+      "matrix": [
+        -0.44714000000000004,
+        0.8806500000000002,
+        0.15663000000000002,
+        0.0,
+        -0.8834500000000001,
+        -0.40741000000000005,
+        -0.23139,
+        0.0,
+        -0.13996000000000003,
+        -0.24184000000000003,
+        0.9601700000000001,
+        0.0,
+        -1.3997899999999999,
+        0.0025300000000000006,
+        1.52623,
+        1.0
+      ],
+      "name": "Lamp.004"
+    },
+    {
+      "name": "Lamp.004"
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 10497,
+      "wrapT": 10497
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Sketchfab_Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    },
+    {
+      "sampler": 0,
+      "source": 2
+    }
+  ]
+}

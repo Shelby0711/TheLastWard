@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: sf_morgue
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: sf_morgue
+  displayTitle: Chalked On The Stairhead
+  bodyText: Down there they kept the ones it was finished with. Nobody signed for
+    them and nobody came for them. If you are reading this you have already been
+    counted - the only question left is how much you know.
+  knowledgeValue: 5
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

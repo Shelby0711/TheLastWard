@@ -1146,7 +1146,140 @@ namespace LastWard.EditorTools
 
             Debug.Log($"[ArtPass] Manager animator: {bound.Count} clip(s) bound [{string.Join(", ", bound)}] " +
                       $"avatar={(avatar != null ? avatar.name : "NONE")}");
+            VerifyClipBinding(visual, controller);
             return animator;
+        }
+
+        /// <summary>
+        /// Checks that each bound clip's curves actually address transforms that EXIST under the
+        /// animator, and reports the first few that do not.
+        ///
+        /// Generic clips bind by transform path and fail SILENTLY when a path is wrong — the animator
+        /// reports the clip as bound, plays it, and nothing moves. From the outside that is
+        /// indistinguishable from "the entity has no animation", which is exactly how the Inspector
+        /// spent a build standing in its bind pose with six clips supposedly attached.
+        /// </summary>
+        private static void VerifyClipBinding(GameObject visual, UnityEditor.Animations.AnimatorController controller)
+        {
+            var have = new HashSet<string>();
+            foreach (var t in visual.GetComponentsInChildren<Transform>(true))
+            {
+                string path = AnimationUtility.CalculateTransformPath(t, visual.transform);
+                if (!string.IsNullOrEmpty(path)) have.Add(path);
+            }
+
+            foreach (var layer in controller.layers)
+                foreach (var st in layer.stateMachine.states)
+                {
+                    var clip = st.state.motion as AnimationClip;
+                    if (clip == null) continue;
+                    int hit = 0, miss = 0;
+                    string firstMiss = null;
+                    foreach (var b in AnimationUtility.GetCurveBindings(clip))
+                    {
+                        if (string.IsNullOrEmpty(b.path)) continue;
+                        if (have.Contains(b.path)) hit++;
+                        else { miss++; if (firstMiss == null) firstMiss = b.path; }
+                    }
+                    if (miss > 0)
+                        Debug.LogWarning($"[ArtPass] Clip '{st.state.name}' ({clip.name}): {hit} curve " +
+                            $"paths resolve, {miss} DO NOT. First unresolved: '{firstMiss}'. " +
+                            "The clip will play and nothing will move.");
+                    else if (hit == 0)
+                        Debug.LogWarning($"[ArtPass] Clip '{st.state.name}' ({clip.name}) has NO " +
+                            "transform curves at all — the FBX exported without animation.");
+                }
+        }
+
+        /// <summary>
+        /// A player character's animator: a 1-D Locomotion blend tree (idle -> walk -> run) with
+        /// crouch and emote states layered on as triggers.
+        ///
+        /// A blend tree rather than the Manager's flat trigger machine because players DO accelerate
+        /// between gaits - a teammate easing from a walk into a run should look like one motion, and
+        /// hard state swaps at that distance read as a stutter.
+        /// </summary>
+        public static Animator SetupPlayerAnimator(GameObject visual, string rigRel,
+            string idleRel, string walkRel, string runRel, string crouchIdleRel, string crouchWalkRel,
+            string controllerName)
+        {
+            var avatar = ConfigureGenericRig(rigRel);
+            foreach (var c in new[] { idleRel, walkRel, runRel, crouchIdleRel, crouchWalkRel })
+                if (!string.IsNullOrEmpty(c)) ConfigureClip(c, loop: true);
+
+            var idle = FindAnimationClip(ArtRoot + idleRel);
+            var walk = FindAnimationClip(ArtRoot + walkRel);
+            var run = FindAnimationClip(ArtRoot + runRel);
+            if (idle == null || walk == null)
+            {
+                Debug.LogWarning($"[ArtPass] {controllerName}: missing idle/walk clips - body will bind-pose.");
+                return visual.GetComponentInChildren<Animator>();
+            }
+
+            if (!AssetDatabase.IsValidFolder("Assets/_Project/Animations"))
+                AssetDatabase.CreateFolder("Assets/_Project", "Animations");
+            string path = $"Assets/_Project/Animations/{controllerName}.controller";
+            if (AssetDatabase.LoadAssetAtPath<UnityEditor.Animations.AnimatorController>(path) != null)
+                AssetDatabase.DeleteAsset(path);
+            var controller = UnityEditor.Animations.AnimatorController.CreateAnimatorControllerAtPath(path);
+            if (controller.layers.Length == 0) controller.AddLayer("Base");
+            var sm = controller.layers[0].stateMachine;
+
+            controller.AddParameter("Speed", AnimatorControllerParameterType.Float);
+            controller.AddParameter("Crouching", AnimatorControllerParameterType.Bool);
+            controller.AddParameter("Emote", AnimatorControllerParameterType.Trigger);
+
+            var tree = new UnityEditor.Animations.BlendTree
+            {
+                name = "Locomotion",
+                blendType = UnityEditor.Animations.BlendTreeType.Simple1D,
+                blendParameter = "Speed",
+                useAutomaticThresholds = false,
+            };
+            AssetDatabase.AddObjectToAsset(tree, controller);
+            tree.AddChild(idle, 0f);
+            tree.AddChild(walk, 1f);
+            tree.AddChild(run != null ? run : walk, 2f);
+
+            var loco = sm.AddState("Locomotion");
+            loco.motion = tree;
+            sm.defaultState = loco;
+
+            var cIdle = FindAnimationClip(ArtRoot + crouchIdleRel);
+            var cWalk = FindAnimationClip(ArtRoot + crouchWalkRel);
+            // Not every character pack ships a dedicated crouching idle — PlayerB has the walk but no
+            // stationary pose. Falling back to the crouch walk (which the blend tree then holds at
+            // its first frame) keeps that body crouching properly instead of silently standing up,
+            // which would make one of the two variants ignore the stealth verb entirely.
+            if (cIdle == null && cWalk != null) cIdle = cWalk;
+            if (cIdle != null)
+            {
+                var crouchTree = new UnityEditor.Animations.BlendTree
+                {
+                    name = "Crouch",
+                    blendType = UnityEditor.Animations.BlendTreeType.Simple1D,
+                    blendParameter = "Speed",
+                    useAutomaticThresholds = false,
+                };
+                AssetDatabase.AddObjectToAsset(crouchTree, controller);
+                crouchTree.AddChild(cIdle, 0f);
+                crouchTree.AddChild(cWalk != null ? cWalk : cIdle, 1f);
+
+                var crouch = sm.AddState("Crouch");
+                crouch.motion = crouchTree;
+
+                var down = loco.AddTransition(crouch);
+                down.hasExitTime = false; down.duration = 0.15f;
+                down.AddCondition(UnityEditor.Animations.AnimatorConditionMode.If, 0f, "Crouching");
+                var up = crouch.AddTransition(loco);
+                up.hasExitTime = false; up.duration = 0.15f;
+                up.AddCondition(UnityEditor.Animations.AnimatorConditionMode.IfNot, 0f, "Crouching");
+            }
+
+            EditorUtility.SetDirty(controller);
+            SetupAnimatorComponent(visual, ArtRoot + rigRel, controller);
+            Debug.Log($"[ArtPass] {controllerName}: locomotion wired (crouch={cIdle != null}).");
+            return visual.GetComponentInChildren<Animator>();
         }
 
         /// <summary>First AnimationClip inside a model whose name contains <paramref name="nameContains"/>.</summary>

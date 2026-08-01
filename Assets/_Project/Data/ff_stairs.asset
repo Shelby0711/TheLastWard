@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c5ab72a93c87241855091a5c35bff6, type: 3}
+  m_Name: ff_stairs
+  m_EditorClassIdentifier: LastWard.Runtime::LastWard.Puzzles.ClueDefinition
+  clueId: ff_stairs
+  displayTitle: Scrawled By The Stairwell
+  bodyText: The bottom of it came down years ago and nobody is coming to clear it.
+    There is a linen crate down the hall on castors - get it up against the fall
+    and you can go over the top. It is heavy and it screams the whole way, so do
+    it in pairs and stop when you need to. It cannot hear you standing still.
+  knowledgeValue: 6
+  spawnPointPoolId: 
+  puzzleId: 
+  isContradiction: 0

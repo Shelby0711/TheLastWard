@@ -64,14 +64,24 @@ namespace LastWard.Puzzles
             puzzle.WrongStationPressed -= OnWrongStationPressed;
         }
 
+        /// <summary>This lock in particular, as opposed to <c>IsSolved</c>, which is all three.</summary>
+        private bool ThisLockTurned =>
+            puzzle != null && (puzzle.CorrectMask & (1 << stationIndex)) != 0;
+
         public string GetPrompt()
         {
             if (puzzle == null) return label;
             if (puzzle.IsSolved) return $"{label} (open)";
+            // Its OWN bit, checked before the key. The only states tested here were "all three done"
+            // and "do you hold a key" — so a lock you had just turned fell through to the second one,
+            // and since turning the key also consumes it, it reported the key it had swallowed a
+            // moment earlier as missing.
+            if (ThisLockTurned) return $"{label} - turned";
             return HasKey() ? $"Unlock {label}" : $"{label} - locked (key missing)";
         }
 
-        public bool CanInteract(ulong playerId) => puzzle != null && !puzzle.IsSolved && HasKey();
+        public bool CanInteract(ulong playerId) =>
+            puzzle != null && !puzzle.IsSolved && !ThisLockTurned && HasKey();
 
         // Set when THIS client works the lock, so only the player who actually turned the key loses
         // it — the correct-mask event fires on every peer.

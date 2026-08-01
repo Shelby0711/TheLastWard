@@ -87,10 +87,15 @@ namespace LastWard.Player
             // land. Faded rather than cut so it tails off as the screen goes.
             if (state != null && !state.IsAlive)
             {
-                Blend(heavy, 0f);
-                Blend(walk, 0f);
-                Blend(idle, 0f);
-                Blend(heartbeat, 0f);
+                // Cut, not faded. Blending toward zero still takes a second or two at blendSpeed,
+                // which is exactly the window the death scream occupies - so the player heard their
+                // own breathing over the top of it. The dead stop instantly.
+                foreach (var src in new[] { heavy, walk, idle, heartbeat })
+                {
+                    if (src == null) continue;
+                    src.volume = 0f;
+                    if (src.isPlaying) src.Stop();
+                }
                 return;
             }
 
